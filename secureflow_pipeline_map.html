@@ -1,0 +1,835 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SecureFlow Vault — DevSecOps Pipeline</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0d1117;--surface:#161b22;--surface2:#21262d;--border:#30363d;
+  --text:#e6edf3;--muted:#8b949e;
+  --accent:#6e40c9;--accent2:#58a6ff;
+  --green:#3fb950;--red:#f85149;--orange:#d29922;--yellow:#e3b341;
+  --purple:#bc8cff;--gitlab:#fc6d26;
+}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;padding:28px 24px 80px}
+h1{font-size:21px;font-weight:700}
+.tag{display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;letter-spacing:.4px}
+.tag-gitlab{background:rgba(252,109,38,.15);color:var(--gitlab);border:1px solid rgba(252,109,38,.3)}
+.page-head{display:flex;align-items:center;gap:12px;margin-bottom:22px;flex-wrap:wrap}
+.page-head h1{flex:1}
+
+/* legend */
+.legend{display:flex;gap:16px;margin-bottom:20px;flex-wrap:wrap}
+.li{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--muted)}
+.ld{width:12px;height:12px;border-radius:3px}
+.ld-green{background:#3fb950;border:1px solid #2d5a27}
+.ld-brown{background:#d29922;border:1px solid #8a5e10}
+.ld-blue{background:#58a6ff;border:1px solid #1a3a5c}
+
+/* pipeline */
+.pipeline{display:flex;flex-direction:column;gap:4px}
+
+/* stage */
+.stage{border-radius:10px;overflow:hidden;border:1px solid var(--border);cursor:pointer;transition:border-color .2s}
+.stage:hover{border-color:#58a6ff55}
+.stage-header{padding:9px 14px;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;display:flex;align-items:center;gap:10px;flex-wrap:wrap;user-select:none}
+.stage-header .sh-note{font-weight:400;text-transform:none;font-size:11px;opacity:.8}
+.stage-header .chevron{margin-left:auto;font-size:14px;transition:transform .25s;color:var(--muted);flex-shrink:0}
+.stage.open .chevron{transform:rotate(90deg)}
+.stage-body{padding:10px;display:flex;gap:8px;flex-wrap:wrap}
+
+/* colours */
+.s-green .stage-header{background:#1a3d17;color:#7ee07a}
+.s-green .stage-body{background:#0f1f0d}
+.s-green .job{background:#161b22;border:1px solid #2d4a29;color:var(--text)}
+.s-brown .stage-header{background:#3a2a08;color:var(--yellow)}
+.s-brown .stage-body{background:#1e1608}
+.s-brown .job{background:#161b22;border:1px solid #5a3e0a;color:var(--text)}
+.s-blue .stage-header{background:#0d1f3a;color:var(--accent2)}
+.s-blue .stage-body{background:#080f1e}
+.s-blue .job{background:#161b22;border:1px solid #1a3a5c;color:var(--text)}
+
+/* job */
+.job{border-radius:8px;padding:10px 13px;font-size:12px;flex:1;min-width:155px;max-width:220px}
+.job-title{font-weight:700;font-size:12px;margin-bottom:3px}
+.job-detail{font-size:11px;color:var(--muted);line-height:1.55}
+.badge{display:inline-block;font-size:9px;font-weight:700;padding:2px 6px;border-radius:4px;margin-top:4px;text-transform:uppercase;letter-spacing:.03em}
+.b-green{background:rgba(63,185,80,.2);color:#7ee07a}
+.b-brown{background:rgba(210,153,34,.2);color:var(--yellow)}
+.b-blue{background:rgba(88,166,255,.2);color:var(--accent2)}
+
+/* detail panel */
+.detail{display:none;border-top:1px solid var(--border);padding:18px 16px;gap:20px;flex-wrap:wrap}
+.stage.open .detail{display:flex}
+.s-green .detail{background:#0a1508}
+.s-brown .detail{background:#120e04}
+.s-blue  .detail{background:#040a12}
+
+.det-col{flex:1;min-width:200px;display:flex;flex-direction:column;gap:10px}
+.det-heading{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin-bottom:2px}
+
+.benefit-list,.feature-list{display:flex;flex-direction:column;gap:6px}
+.benefit-item,.feature-item{display:flex;align-items:flex-start;gap:8px;font-size:12px;line-height:1.55}
+.benefit-item .ico{flex-shrink:0;margin-top:1px}
+.benefit-item span{color:var(--muted)}
+.benefit-item strong{color:var(--text)}
+
+.feat-chip{display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border-radius:6px;font-size:11px;font-weight:600;background:var(--surface2);border:1px solid var(--border);color:var(--text);flex-wrap:wrap;margin-bottom:2px}
+.feat-chip .fc-tag{font-size:9px;padding:1px 5px;border-radius:3px;font-weight:700}
+.fc-native{background:rgba(63,185,80,.2);color:#7ee07a}
+.fc-custom{background:rgba(210,153,34,.2);color:var(--yellow)}
+.fc-local{background:rgba(88,166,255,.2);color:var(--accent2)}
+
+.connector{text-align:center;font-size:12px;color:var(--muted);padding:5px 0;letter-spacing:.02em}
+
+/* table */
+.tbl{width:100%;border-collapse:collapse;font-size:12px;margin-top:28px;background:var(--surface);border-radius:10px;overflow:hidden;border:1px solid var(--border)}
+.tbl th{background:var(--surface2);padding:9px 12px;text-align:left;font-weight:700;color:var(--muted);border-bottom:1px solid var(--border);font-size:11px;text-transform:uppercase;letter-spacing:.04em}
+.tbl td{padding:8px 12px;border-bottom:1px solid #21262d;vertical-align:top;line-height:1.55;color:var(--muted)}
+.tbl td:first-child{color:var(--text);font-weight:600;white-space:nowrap}
+.tbl tr:last-child td{border-bottom:none}
+.tbl tr:hover td{background:#1c2128}
+.dot{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:5px;vertical-align:middle}
+</style>
+</head>
+<body>
+
+<div class="page-head">
+  <h1>🔐 SecureFlow AI — AI DevSecOps Pipeline</h1>
+  <span class="tag tag-gitlab">GitLab Hackathon</span>
+</div>
+
+<!-- ── STORY SECTIONS ── -->
+
+<!-- Problem -->
+<div style="background:#161b22;border:1px solid #30363d;border-left:3px solid #f85149;border-radius:10px;padding:20px 22px;margin-bottom:12px">
+  <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:#f85149;margin-bottom:14px">🔴 The Problem — High-Impact Suboptimalities</div>
+  <div style="display:flex;flex-direction:column;gap:10px">
+    <div style="display:flex;gap:12px;align-items:flex-start">
+      <span style="background:rgba(248,81,73,.2);color:#f85149;font-size:10px;font-weight:700;padding:2px 8px;border-radius:4px;flex-shrink:0;margin-top:2px">01</span>
+      <div><strong style="color:#e6edf3;font-size:13px">Security is bolted on, not built in</strong><br><span style="color:#8b949e;font-size:12px;line-height:1.6">Teams find vulnerabilities in production or quarterly pentests — after code is merged, deployed, and forgotten. The developer who wrote it has moved on. Context is gone. Fixing it costs 10–100× more than catching it in the MR.</span></div>
+    </div>
+    <div style="display:flex;gap:12px;align-items:flex-start">
+      <span style="background:rgba(248,81,73,.2);color:#f85149;font-size:10px;font-weight:700;padding:2px 8px;border-radius:4px;flex-shrink:0;margin-top:2px">02</span>
+      <div><strong style="color:#e6edf3;font-size:13px">Developers are flying blind</strong><br><span style="color:#8b949e;font-size:12px;line-height:1.6">A developer writing a password reveal endpoint has no idea that IDOR is the #1 risk for that feature. The threat model exists in a security architect's head — not in the issue they were assigned.</span></div>
+    </div>
+    <div style="display:flex;gap:12px;align-items:flex-start">
+      <span style="background:rgba(248,81,73,.2);color:#f85149;font-size:10px;font-weight:700;padding:2px 8px;border-radius:4px;flex-shrink:0;margin-top:2px">03</span>
+      <div><strong style="color:#e6edf3;font-size:13px">Security tools create noise, not signal</strong><br><span style="color:#8b949e;font-size:12px;line-height:1.6">SAST scanners produce hundreds of findings per scan. 40–60% are false positives. Developers learn to ignore them. The one real critical vulnerability drowns in the noise.</span></div>
+    </div>
+    <div style="display:flex;gap:12px;align-items:flex-start">
+      <span style="background:rgba(248,81,73,.2);color:#f85149;font-size:10px;font-weight:700;padding:2px 8px;border-radius:4px;flex-shrink:0;margin-top:2px">04</span>
+      <div><strong style="color:#e6edf3;font-size:13px">Every team reinvents the same wheel</strong><br><span style="color:#8b949e;font-size:12px;line-height:1.6">Each project sets up its own SAST config, its own DAST auth script, its own MR gate. There's no enforced floor — a rushed team skips it, and nobody notices until production.</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- Solution -->
+<div style="background:#161b22;border:1px solid #30363d;border-left:3px solid #3fb950;border-radius:10px;padding:20px 22px;margin-bottom:12px">
+  <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:#3fb950;margin-bottom:14px">✅ The Solution — What SecureFlow AI Does</div>
+  <p style="color:#8b949e;font-size:12px;line-height:1.6;margin-bottom:14px">A fully orchestrated, AI-native DevSecOps pipeline built on GitLab's agent platform. It chains four things no one has connected before:</p>
+  <div style="display:flex;flex-direction:column;gap:10px">
+    <div style="display:flex;gap:12px;align-items:flex-start">
+      <span style="background:rgba(63,185,80,.2);color:#3fb950;font-size:16px;flex-shrink:0;margin-top:1px">🧠</span>
+      <div><strong style="color:#e6edf3;font-size:13px">Threat modeling before code is written</strong><br><span style="color:#8b949e;font-size:12px;line-height:1.6">Planner Agent turns a feature request into a structured issue. A custom AI agent then runs STRIDE + OWASP Top 10 analysis and posts a risk table as a comment — before the developer opens their IDE.</span></div>
+    </div>
+    <div style="display:flex;gap:12px;align-items:flex-start">
+      <span style="background:rgba(63,185,80,.2);color:#3fb950;font-size:16px;flex-shrink:0;margin-top:1px">🔒</span>
+      <div><strong style="color:#e6edf3;font-size:13px">Enforced security scanning on every commit</strong><br><span style="color:#8b949e;font-size:12px;line-height:1.6">Via Pipeline Execution Policy, SAST, secret detection, and dependency scanning are injected at group level — no team can opt out. Advanced SAST tracks taint flows across files, catching SQLi and hardcoded secrets.</span></div>
+    </div>
+    <div style="display:flex;gap:12px;align-items:flex-start">
+      <span style="background:rgba(63,185,80,.2);color:#3fb950;font-size:16px;flex-shrink:0;margin-top:1px">🔧</span>
+      <div><strong style="color:#e6edf3;font-size:13px">AI that fixes what it finds</strong><br><span style="color:#8b949e;font-size:12px;line-height:1.6">Agentic SAST Vuln Resolution opens a MR with a working code fix. SAST and Secret Detection FP flows score every finding with a confidence percentage — developers focus on what's real, not noise.</span></div>
+    </div>
+    <div style="display:flex;gap:12px;align-items:flex-start">
+      <span style="background:rgba(63,185,80,.2);color:#3fb950;font-size:16px;flex-shrink:0;margin-top:1px">👤</span>
+      <div><strong style="color:#e6edf3;font-size:13px">One human decision, fully informed</strong><br><span style="color:#8b949e;font-size:12px;line-height:1.6">By the time a reviewer opens the MR, they see Duo's inline comments, a unified security summary, FP-triaged findings, and auto-fix MRs ready to merge — one click to approve, with a full audit trail.</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- Business Impact -->
+<div style="background:#161b22;border:1px solid #30363d;border-left:3px solid #58a6ff;border-radius:10px;padding:20px 22px;margin-bottom:12px">
+  <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:#58a6ff;margin-bottom:14px">📈 Business Impact</div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px">
+    <div style="background:#0d1117;border:1px solid #30363d;border-radius:8px;padding:14px 16px">
+      <div style="font-size:11px;color:#8b949e;margin-bottom:4px">Time to discover critical vuln</div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <span style="color:#f85149;font-size:12px;font-weight:600;text-decoration:line-through">Days–months</span>
+        <span style="color:#8b949e">→</span>
+        <span style="color:#3fb950;font-size:13px;font-weight:700">Minutes (pre-merge)</span>
+      </div>
+    </div>
+    <div style="background:#0d1117;border:1px solid #30363d;border-radius:8px;padding:14px 16px">
+      <div style="font-size:11px;color:#8b949e;margin-bottom:4px">Cost to fix a vulnerability</div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <span style="color:#f85149;font-size:12px;font-weight:600;text-decoration:line-through">10–100× (prod)</span>
+        <span style="color:#8b949e">→</span>
+        <span style="color:#3fb950;font-size:13px;font-weight:700">1× (in the MR)</span>
+      </div>
+    </div>
+    <div style="background:#0d1117;border:1px solid #30363d;border-radius:8px;padding:14px 16px">
+      <div style="font-size:11px;color:#8b949e;margin-bottom:4px">False positive triage time</div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <span style="color:#f85149;font-size:12px;font-weight:600;text-decoration:line-through">2–4h per sprint</span>
+        <span style="color:#8b949e">→</span>
+        <span style="color:#3fb950;font-size:13px;font-weight:700">Near zero (AI scored)</span>
+      </div>
+    </div>
+    <div style="background:#0d1117;border:1px solid #30363d;border-radius:8px;padding:14px 16px">
+      <div style="font-size:11px;color:#8b949e;margin-bottom:4px">Security knowledge required</div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <span style="color:#f85149;font-size:12px;font-weight:600;text-decoration:line-through">Senior SecEng</span>
+        <span style="color:#8b949e">→</span>
+        <span style="color:#3fb950;font-size:13px;font-weight:700">Any developer</span>
+      </div>
+    </div>
+    <div style="background:#0d1117;border:1px solid #30363d;border-radius:8px;padding:14px 16px">
+      <div style="font-size:11px;color:#8b949e;margin-bottom:4px">Audit trail completeness</div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <span style="color:#f85149;font-size:12px;font-weight:600;text-decoration:line-through">Scattered tools</span>
+        <span style="color:#8b949e">→</span>
+        <span style="color:#3fb950;font-size:13px;font-weight:700">End-to-end in GitLab</span>
+      </div>
+    </div>
+    <div style="background:#0d1117;border:1px solid #30363d;border-radius:8px;padding:14px 16px">
+      <div style="font-size:11px;color:#8b949e;margin-bottom:4px">Policy enforcement</div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <span style="color:#f85149;font-size:12px;font-weight:600;text-decoration:line-through">Per-team, inconsistent</span>
+        <span style="color:#8b949e">→</span>
+        <span style="color:#3fb950;font-size:13px;font-weight:700">Enforced at group level</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Game changer -->
+<div style="background:#161b22;border:1px solid #30363d;border-left:3px solid #d29922;border-radius:10px;padding:20px 22px;margin-bottom:12px">
+  <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:#e3b341;margin-bottom:14px">⚡ The Game-Changing Insight</div>
+  <p style="color:#8b949e;font-size:12px;line-height:1.7;margin-bottom:12px">Everyone else is building point solutions — a better SAST scanner, a smarter DAST tool, an AI code reviewer. <strong style="color:#e6edf3">SecureFlow AI is an orchestration layer.</strong> It takes GitLab's native platform — already the most complete DevSecOps suite available — and chains it into an unbroken, AI-driven loop.</p>
+  <div style="display:flex;flex-direction:column;gap:8px">
+    <div style="display:flex;gap:10px;align-items:flex-start">
+      <span style="color:#e3b341;font-size:13px;flex-shrink:0">→</span>
+      <span style="color:#8b949e;font-size:12px;line-height:1.6">Threat model <strong style="color:#e6edf3">informs</strong> the issue · issue <strong style="color:#e6edf3">informs</strong> the Developer Flow · Developer Flow <strong style="color:#e6edf3">creates</strong> the MR</span>
+    </div>
+    <div style="display:flex;gap:10px;align-items:flex-start">
+      <span style="color:#e3b341;font-size:13px;flex-shrink:0">→</span>
+      <span style="color:#8b949e;font-size:12px;line-height:1.6">MR <strong style="color:#e6edf3">triggers</strong> scans · scans <strong style="color:#e6edf3">feed</strong> the AI review · AI review <strong style="color:#e6edf3">informs</strong> the human</span>
+    </div>
+    <div style="display:flex;gap:10px;align-items:flex-start">
+      <span style="color:#e3b341;font-size:13px;flex-shrink:0">→</span>
+      <span style="color:#8b949e;font-size:12px;line-height:1.6">No context is lost. No step is optional. No vulnerability slips through the gap between stages.</span>
+    </div>
+  </div>
+  <div style="margin-top:16px;padding:14px 18px;background:#0d1117;border-radius:8px;border:1px solid #30363d;text-align:center">
+    <p style="font-size:14px;color:#e6edf3;font-style:italic">"Security isn't a gate at the end of your pipeline. <strong style="color:#e3b341">With SecureFlow AI, it IS the pipeline</strong> <span style="color:#8b949e;font-style:normal;font-size:13px">— starting before a single line of code is written.</span>"</p>
+  </div>
+</div>
+
+<!-- Summary flowchart -->
+<div style="background:#161b22;border:1px solid #30363d;border-radius:10px;padding:20px 22px;margin-bottom:20px">
+  <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:#8b949e;margin-bottom:16px">🗺️ Pipeline at a Glance</div>
+  <div style="display:flex;flex-wrap:wrap;align-items:center;gap:4px;justify-content:center">
+    <div style="display:flex;flex-direction:column;align-items:center;gap:4px;min-width:80px">
+      <div style="background:#3a2a08;border:1px solid #5a3e0a;border-radius:8px;padding:8px 12px;text-align:center;width:82px">
+        <div style="font-size:16px">⚙️</div>
+        <div style="font-size:10px;font-weight:700;color:#e3b341;margin-top:3px">Step 0</div>
+        <div style="font-size:9px;color:#8b949e;margin-top:2px">Plan &amp; Threat Model</div>
+      </div>
+    </div>
+    <div style="color:#30363d;font-size:18px;font-weight:300">→</div>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:4px;min-width:80px">
+      <div style="background:#0d1f3a;border:1px solid #1a3a5c;border-radius:8px;padding:8px 12px;text-align:center;width:82px">
+        <div style="font-size:16px">🖥️</div>
+        <div style="font-size:10px;font-weight:700;color:#58a6ff;margin-top:3px">Local</div>
+        <div style="font-size:9px;color:#8b949e;margin-top:2px">Pre-commit hooks</div>
+      </div>
+    </div>
+    <div style="color:#30363d;font-size:18px;font-weight:300">→</div>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:4px;min-width:80px">
+      <div style="background:#1a3d17;border:1px solid #2d4a29;border-radius:8px;padding:8px 12px;text-align:center;width:82px">
+        <div style="font-size:16px">📦</div>
+        <div style="font-size:10px;font-weight:700;color:#7ee07a;margin-top:3px">Stage 1</div>
+        <div style="font-size:9px;color:#8b949e;margin-top:2px">Install &amp; Audit</div>
+      </div>
+    </div>
+    <div style="color:#30363d;font-size:18px;font-weight:300">→</div>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:4px;min-width:80px">
+      <div style="background:#1a3d17;border:1px solid #2d4a29;border-radius:8px;padding:8px 12px;text-align:center;width:82px">
+        <div style="font-size:16px">🔍</div>
+        <div style="font-size:10px;font-weight:700;color:#7ee07a;margin-top:3px">Stage 2</div>
+        <div style="font-size:9px;color:#8b949e;margin-top:2px">SAST · Secrets · Deps</div>
+        <div style="font-size:8px;color:#e3b341;margin-top:2px">enforced</div>
+      </div>
+    </div>
+    <div style="color:#30363d;font-size:18px;font-weight:300">→</div>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:4px;min-width:80px">
+      <div style="background:#1a3d17;border:1px solid #2d4a29;border-radius:8px;padding:8px 12px;text-align:center;width:82px">
+        <div style="font-size:16px">🧪</div>
+        <div style="font-size:10px;font-weight:700;color:#7ee07a;margin-top:3px">Stage 3</div>
+        <div style="font-size:9px;color:#8b949e;margin-top:2px">Lint · Unit Tests</div>
+      </div>
+    </div>
+    <div style="color:#30363d;font-size:18px;font-weight:300">→</div>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:4px;min-width:80px">
+      <div style="background:#1a3d17;border:1px solid #2d4a29;border-radius:8px;padding:8px 12px;text-align:center;width:82px">
+        <div style="font-size:16px">🐳</div>
+        <div style="font-size:10px;font-weight:700;color:#7ee07a;margin-top:3px">Stage 4</div>
+        <div style="font-size:9px;color:#8b949e;margin-top:2px">Docker Build</div>
+      </div>
+    </div>
+    <div style="color:#30363d;font-size:18px;font-weight:300">→</div>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:4px;min-width:80px">
+      <div style="background:#1a3d17;border:1px solid #2d4a29;border-radius:8px;padding:8px 12px;text-align:center;width:82px">
+        <div style="font-size:16px">🛡️</div>
+        <div style="font-size:10px;font-weight:700;color:#7ee07a;margin-top:3px">Stage 5</div>
+        <div style="font-size:9px;color:#8b949e;margin-top:2px">Container Scan</div>
+      </div>
+    </div>
+    <div style="color:#30363d;font-size:18px;font-weight:300">→</div>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:4px;min-width:80px">
+      <div style="background:#1a3d17;border:1px solid #2d4a29;border-radius:8px;padding:8px 12px;text-align:center;width:82px">
+        <div style="font-size:16px">🚀</div>
+        <div style="font-size:10px;font-weight:700;color:#7ee07a;margin-top:3px">Stage 6</div>
+        <div style="font-size:9px;color:#8b949e;margin-top:2px">Review Env Deploy</div>
+      </div>
+    </div>
+    <div style="color:#30363d;font-size:18px;font-weight:300">→</div>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:4px;min-width:80px">
+      <div style="background:#1a3d17;border:1px solid #2d4a29;border-radius:8px;padding:8px 12px;text-align:center;width:82px">
+        <div style="font-size:16px">🎭</div>
+        <div style="font-size:10px;font-weight:700;color:#7ee07a;margin-top:3px">Stage 7</div>
+        <div style="font-size:9px;color:#8b949e;margin-top:2px">E2E Tests</div>
+      </div>
+    </div>
+    <div style="color:#30363d;font-size:18px;font-weight:300">→</div>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:4px;min-width:80px">
+      <div style="background:#1a3d17;border:1px solid #2d4a29;border-radius:8px;padding:8px 12px;text-align:center;width:82px">
+        <div style="font-size:16px">⚡</div>
+        <div style="font-size:10px;font-weight:700;color:#7ee07a;margin-top:3px">Stage 8</div>
+        <div style="font-size:9px;color:#8b949e;margin-top:2px">DAST · API Sec</div>
+      </div>
+    </div>
+    <div style="color:#30363d;font-size:18px;font-weight:300">→</div>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:4px;min-width:80px">
+      <div style="background:#3a2a08;border:1px solid #5a3e0a;border-radius:8px;padding:8px 12px;text-align:center;width:82px">
+        <div style="font-size:16px">📊</div>
+        <div style="font-size:10px;font-weight:700;color:#e3b341;margin-top:3px">Stage 9</div>
+        <div style="font-size:9px;color:#8b949e;margin-top:2px">Security Summary</div>
+      </div>
+    </div>
+    <div style="color:#30363d;font-size:18px;font-weight:300">→</div>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:4px;min-width:80px">
+      <div style="background:#1a3d17;border:1px solid #2d4a29;border-radius:8px;padding:8px 12px;text-align:center;width:82px">
+        <div style="font-size:16px">🤖</div>
+        <div style="font-size:10px;font-weight:700;color:#7ee07a;margin-top:3px">Stage 9b</div>
+        <div style="font-size:9px;color:#8b949e;margin-top:2px">AI Review · FP Triage</div>
+      </div>
+    </div>
+    <div style="color:#30363d;font-size:18px;font-weight:300">→</div>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:4px;min-width:80px">
+      <div style="background:#1a3d17;border:1px solid #2d4a29;border-radius:8px;padding:8px 12px;text-align:center;width:82px">
+        <div style="font-size:16px">👤</div>
+        <div style="font-size:10px;font-weight:700;color:#7ee07a;margin-top:3px">Stage 9c</div>
+        <div style="font-size:9px;color:#8b949e;margin-top:2px">Human Approval</div>
+      </div>
+    </div>
+    <div style="color:#30363d;font-size:18px;font-weight:300">→</div>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:4px;min-width:80px">
+      <div style="background:#1a3d17;border:1px solid #2d4a29;border-radius:8px;padding:8px 12px;text-align:center;width:82px">
+        <div style="font-size:16px">📝</div>
+        <div style="font-size:10px;font-weight:700;color:#7ee07a;margin-top:3px">Stage 10</div>
+        <div style="font-size:9px;color:#8b949e;margin-top:2px">Release Notes</div>
+      </div>
+    </div>
+  </div>
+  <div style="display:flex;gap:16px;margin-top:14px;flex-wrap:wrap;justify-content:center">
+    <div style="display:flex;align-items:center;gap:6px;font-size:11px;color:#8b949e"><span style="width:10px;height:10px;border-radius:2px;background:#3fb950;display:inline-block"></span>Native GitLab / Duo</div>
+    <div style="display:flex;align-items:center;gap:6px;font-size:11px;color:#8b949e"><span style="width:10px;height:10px;border-radius:2px;background:#d29922;display:inline-block"></span>Custom build</div>
+    <div style="display:flex;align-items:center;gap:6px;font-size:11px;color:#8b949e"><span style="width:10px;height:10px;border-radius:2px;background:#58a6ff;display:inline-block"></span>Local tooling</div>
+    <div style="display:flex;align-items:center;gap:6px;font-size:11px;color:#e3b341"><span style="font-size:10px">enforced</span> = Pipeline Execution Policy (group level)</div>
+  </div>
+</div>
+
+<!-- Legend -->
+<div class="legend">
+  <div class="li"><div class="ld ld-green"></div>Native GitLab / Duo — configure</div>
+  <div class="li"><div class="ld ld-brown"></div>Custom build — your value-add</div>
+  <div class="li"><div class="ld ld-blue"></div>Local tooling — pre-commit</div>
+  <div class="li" style="color:#58a6ff88;font-size:11px">▶ Click any stage to expand details</div>
+</div>
+
+<div class="pipeline" id="pipeline">
+
+  <!-- STEP 0 -->
+  <div class="stage s-brown" onclick="toggle(this)">
+    <div class="stage-header">⚙️ Step 0 — Pre-pipeline <span class="sh-note">Before any git push — Issue creation &amp; Threat Modeling</span><span class="chevron">▶</span></div>
+    <div class="stage-body">
+      <div class="job"><div class="job-title">Planner Agent</div><div class="job-detail">Feature request → structured GitLab issue · Title · user story · AC · impl plan · file paths</div><span class="badge b-green">Native GA 18.8</span></div>
+      <div class="job"><div class="job-title">Custom Threat Modeling Agent</div><div class="job-detail">Reads issue · STRIDE + OWASP Top 10 · posts risk table as issue comment · threat-modeling-flow.yaml</div><span class="badge b-brown">Your build</span></div>
+      <div class="job"><div class="job-title">GitLab issue (enriched)</div><div class="job-detail">Threat model comment attached · @threatmodeling tagged · ready for developer pickup</div><span class="badge b-green">Native Notes API</span></div>
+    </div>
+    <div class="detail">
+      <div class="det-col">
+        <div class="det-heading">Benefits</div>
+        <div class="benefit-list">
+          <div class="benefit-item"><span class="ico">🎯</span><span><strong>Shift-left security:</strong> Threats identified before a single line of code is written</span></div>
+          <div class="benefit-item"><span class="ico">🧠</span><span><strong>STRIDE coverage:</strong> Spoofing, Tampering, Repudiation, Info Disclosure, DoS, Elevation of Privilege all mapped per feature</span></div>
+          <div class="benefit-item"><span class="ico">📋</span><span><strong>OWASP Top 10 context:</strong> Each risk linked to a known category so developers have remediation guidance upfront</span></div>
+          <div class="benefit-item"><span class="ico">⚡</span><span><strong>Developer Flow ready:</strong> Well-structured issue with impl plan + file paths feeds directly into Developer / Software Dev Flow</span></div>
+        </div>
+      </div>
+      <div class="det-col">
+        <div class="det-heading">GitLab features used</div>
+        <div class="feature-list">
+          <div class="feat-chip">🤖 Planner Agent <span class="fc-tag fc-native">Native GA 18.8</span></div>
+          <div class="feat-chip">🔐 Security Analyst Agent (base) <span class="fc-tag fc-native">Native GA 18.8</span></div>
+          <div class="feat-chip">📝 Custom system prompt extension <span class="fc-tag fc-custom">Your build</span></div>
+          <div class="feat-chip">💬 GitLab Notes API — issue comment <span class="fc-tag fc-native">Native</span></div>
+          <div class="feat-chip">🏷️ Issue labels + milestone assignment <span class="fc-tag fc-native">Native</span></div>
+          <div class="feat-chip">📁 Issue templates <span class="fc-tag fc-native">Native</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="connector">↓ Human Developer / AI Developer Flow picks up issue → git push → MR opened</div>
+
+  <!-- PRE-COMMIT -->
+  <div class="stage s-blue" onclick="toggle(this)">
+    <div class="stage-header">🖥️ Local — Pre-commit hooks <span class="sh-note">.pre-commit-config.yaml</span><span class="chevron">▶</span></div>
+    <div class="stage-body">
+      <div class="job"><div class="job-title">🔑 gitleaks</div><div class="job-detail">Secret detection — same engine as CI Secret Detection</div><span class="badge b-blue">Local</span></div>
+      <div class="job"><div class="job-title">🔑 detect-private-key</div><div class="job-detail">pre-commit-hooks · blocks private keys before push</div><span class="badge b-blue">Local</span></div>
+      <div class="job"><div class="job-title">🗂️ File hygiene</div><div class="job-detail">trailing-ws · merge-conflict · large-files · no-commit-to-main</div><span class="badge b-blue">Local</span></div>
+      <div class="job"><div class="job-title">✅ Schema validation</div><div class="job-detail">YAML / JSON / .gitlab-ci.yml via check-jsonschema</div><span class="badge b-blue">Local</span></div>
+      <div class="job"><div class="job-title">🔷 TypeScript typecheck</div><div class="job-detail">tsc --noEmit · backend + frontend · mirrors CI lint</div><span class="badge b-blue">Local</span></div>
+      <div class="job"><div class="job-title">📝 Conventional commits</div><div class="job-detail">commit-msg stage · feat|fix|chore|docs|test|ci…</div><span class="badge b-blue">Local</span></div>
+    </div>
+    <div class="detail">
+      <div class="det-col">
+        <div class="det-heading">Benefits</div>
+        <div class="benefit-list">
+          <div class="benefit-item"><span class="ico">🚫</span><span><strong>Secrets never leave the machine:</strong> gitleaks catches hardcoded tokens before push — no CI minutes wasted</span></div>
+          <div class="benefit-item"><span class="ico">⚡</span><span><strong>Fast feedback loop:</strong> Type errors and schema issues caught in milliseconds, not after a 3-minute CI run</span></div>
+          <div class="benefit-item"><span class="ico">🔄</span><span><strong>CI parity:</strong> Same gitleaks engine used locally and in CI — no surprises between environments</span></div>
+          <div class="benefit-item"><span class="ico">📜</span><span><strong>Conventional commits:</strong> Enables automated changelog generation and semantic versioning in Stage 10</span></div>
+        </div>
+      </div>
+      <div class="det-col">
+        <div class="det-heading">Tools &amp; features used</div>
+        <div class="feature-list">
+          <div class="feat-chip">🔍 gitleaks <span class="fc-tag fc-local">Open source</span></div>
+          <div class="feat-chip">🔑 pre-commit-hooks <span class="fc-tag fc-local">Open source</span></div>
+          <div class="feat-chip">✅ check-jsonschema <span class="fc-tag fc-local">Open source</span></div>
+          <div class="feat-chip">🔷 TypeScript compiler (tsc) <span class="fc-tag fc-local">Local</span></div>
+          <div class="feat-chip">📝 commitlint <span class="fc-tag fc-local">Open source</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="connector">↓ git push → MR opened in GitLab → pipeline starts</div>
+
+  <!-- STAGE 1 -->
+  <div class="stage s-green" onclick="toggle(this)">
+    <div class="stage-header">📦 Stage 1 — installDeps<span class="chevron">▶</span></div>
+    <div class="stage-body">
+      <div class="job"><div class="job-title">node:build-deps</div><div class="job-detail">npm ci · backend + frontend · npm audit → audit-*.json artifacts</div><span class="badge b-green">Native</span></div>
+    </div>
+    <div class="detail">
+      <div class="det-col">
+        <div class="det-heading">Benefits</div>
+        <div class="benefit-list">
+          <div class="benefit-item"><span class="ico">📌</span><span><strong>Reproducible installs:</strong> npm ci uses exact lockfile versions — no dependency drift between runs</span></div>
+          <div class="benefit-item"><span class="ico">🔎</span><span><strong>npm audit:</strong> Known CVEs in dependencies surfaced immediately as artifacts — before any code runs</span></div>
+          <div class="benefit-item"><span class="ico">⚡</span><span><strong>Cache efficiency:</strong> node_modules cached between pipelines — later stages start instantly</span></div>
+        </div>
+      </div>
+      <div class="det-col">
+        <div class="det-heading">GitLab features used</div>
+        <div class="feature-list">
+          <div class="feat-chip">💾 GitLab CI cache (node_modules) <span class="fc-tag fc-native">Native</span></div>
+          <div class="feat-chip">📦 Job artifacts (audit-*.json) <span class="fc-tag fc-native">Native</span></div>
+          <div class="feat-chip">🐳 Node.js CI image <span class="fc-tag fc-native">Native runner</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="connector">↓</div>
+
+  <!-- STAGE 2 -->
+  <div class="stage s-green" onclick="toggle(this)">
+    <div class="stage-header">🔍 Stage 2 — test <span class="sh-note">enforced · pipeline injection at group level · Pipeline Execution Policy · .ci/pipeline-execution-policy.yml</span><span class="chevron">▶</span></div>
+    <div class="stage-body">
+      <div class="job"><div class="job-title">Advanced SAST</div><div class="job-detail">gitlab-advanced-sast / semgrep · MR_PIPELINES=true · cross-file taint analysis</div><span class="badge b-green">Native GA</span></div>
+      <div class="job"><div class="job-title">Secret Detection</div><div class="job-detail">gitleaks · CI equivalent of pre-commit hook · scans full commit history</div><span class="badge b-green">Native GA</span></div>
+      <div class="job"><div class="job-title">Dependency Scanning</div><div class="job-detail">SBOM v2 analyzer · DS_EXCLUDED_PATHS set · advisory DB lookup</div><span class="badge b-green">Native GA</span></div>
+    </div>
+    <div class="detail">
+      <div class="det-col">
+        <div class="det-heading">Benefits</div>
+        <div class="benefit-list">
+          <div class="benefit-item"><span class="ico">🔒</span><span><strong>Enforced via policy:</strong> Security scans cannot be removed or skipped by developers — injected at group level</span></div>
+          <div class="benefit-item"><span class="ico">🧵</span><span><strong>Cross-file taint analysis:</strong> Advanced SAST tracks data flow from user input to vulnerable sink across multiple files — catches the SQLi in search.ts</span></div>
+          <div class="benefit-item"><span class="ico">🔑</span><span><strong>Secret Detection:</strong> Catches hardcoded JWT_SECRET = 'secret123' even if pre-commit was bypassed</span></div>
+          <div class="benefit-item"><span class="ico">📦</span><span><strong>Dependency CVEs:</strong> Flags known-vulnerable npm packages before they reach production</span></div>
+        </div>
+      </div>
+      <div class="det-col">
+        <div class="det-heading">GitLab features used</div>
+        <div class="feature-list">
+          <div class="feat-chip">🔬 GitLab Advanced SAST (cross-file taint) <span class="fc-tag fc-native">Ultimate</span></div>
+          <div class="feat-chip">⚙️ Semgrep-based analyzer <span class="fc-tag fc-native">All tiers</span></div>
+          <div class="feat-chip">🔑 Secret Detection (gitleaks) <span class="fc-tag fc-native">Native GA</span></div>
+          <div class="feat-chip">📦 Dependency Scanning (SBOM v2) <span class="fc-tag fc-native">Native GA</span></div>
+          <div class="feat-chip">📜 Pipeline Execution Policy <span class="fc-tag fc-native">Ultimate</span></div>
+          <div class="feat-chip">🛡️ MR Security Widget <span class="fc-tag fc-native">Ultimate</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="connector">↓</div>
+
+  <!-- STAGE 3 -->
+  <div class="stage s-green" onclick="toggle(this)">
+    <div class="stage-header">🧪 Stage 3 — staticValidations<span class="chevron">▶</span></div>
+    <div class="stage-body">
+      <div class="job"><div class="job-title">lint (backend)</div><div class="job-detail">tsc --noEmit · TypeScript</div><span class="badge b-green">Native</span></div>
+      <div class="job"><div class="job-title">lint-frontend</div><div class="job-detail">tsc --noEmit · TypeScript</div><span class="badge b-green">Native</span></div>
+      <div class="job"><div class="job-title">unit-test-backend</div><div class="job-detail">Jest · JUnit XML · Cobertura coverage</div><span class="badge b-green">Native</span></div>
+      <div class="job"><div class="job-title">unit-test-frontend</div><div class="job-detail">Vitest · Cobertura coverage</div><span class="badge b-green">Native</span></div>
+    </div>
+    <div class="detail">
+      <div class="det-col">
+        <div class="det-heading">Benefits</div>
+        <div class="benefit-list">
+          <div class="benefit-item"><span class="ico">🐛</span><span><strong>Type safety:</strong> tsc --noEmit catches type mismatches that could mask security logic errors at compile time</span></div>
+          <div class="benefit-item"><span class="ico">✅</span><span><strong>Unit test coverage:</strong> Auth middleware, ownership checks, and route guards tested in isolation — ensures security logic works as intended</span></div>
+          <div class="benefit-item"><span class="ico">📊</span><span><strong>Coverage reports:</strong> Cobertura XML feeds into GitLab MR coverage widget — low coverage on security-critical files is immediately visible</span></div>
+        </div>
+      </div>
+      <div class="det-col">
+        <div class="det-heading">GitLab features used</div>
+        <div class="feature-list">
+          <div class="feat-chip">📊 GitLab test coverage visualization <span class="fc-tag fc-native">Native</span></div>
+          <div class="feat-chip">📋 JUnit XML test reports in MR <span class="fc-tag fc-native">Native</span></div>
+          <div class="feat-chip">📈 Cobertura coverage widget <span class="fc-tag fc-native">Native</span></div>
+          <div class="feat-chip">🔷 TypeScript (Jest + Vitest) <span class="fc-tag fc-local">Open source</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="connector">↓</div>
+
+  <!-- STAGE 4 -->
+  <div class="stage s-green" onclick="toggle(this)">
+    <div class="stage-header">🐳 Stage 4 — buildImage <span class="sh-note">manual / allow_failure</span><span class="chevron">▶</span></div>
+    <div class="stage-body">
+      <div class="job"><div class="job-title">build-image-backend</div><div class="job-detail">Docker build + push → CI registry</div><span class="badge b-green">Native</span></div>
+      <div class="job"><div class="job-title">build-image-frontend</div><div class="job-detail">Docker build + push → CI registry</div><span class="badge b-green">Native</span></div>
+    </div>
+    <div class="detail">
+      <div class="det-col">
+        <div class="det-heading">Benefits</div>
+        <div class="benefit-list">
+          <div class="benefit-item"><span class="ico">📦</span><span><strong>Immutable images:</strong> Tagged with commit SHA — exact image deployed to review env is what gets scanned by Trivy</span></div>
+          <div class="benefit-item"><span class="ico">🔐</span><span><strong>Private registry:</strong> Images stored in GitLab Container Registry — not pushed to public Docker Hub</span></div>
+          <div class="benefit-item"><span class="ico">🏗️</span><span><strong>Multi-stage Dockerfile:</strong> Build stage compiles TS, run stage has minimal attack surface — no devDependencies in prod image</span></div>
+        </div>
+      </div>
+      <div class="det-col">
+        <div class="det-heading">GitLab features used</div>
+        <div class="feature-list">
+          <div class="feat-chip">🐳 GitLab Container Registry <span class="fc-tag fc-native">Native</span></div>
+          <div class="feat-chip">🔑 CI_REGISTRY_* built-in variables <span class="fc-tag fc-native">Native</span></div>
+          <div class="feat-chip">🏗️ Docker-in-Docker (dind) runner <span class="fc-tag fc-native">Native</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="connector">↓</div>
+
+  <!-- STAGE 5 -->
+  <div class="stage s-green" onclick="toggle(this)">
+    <div class="stage-header">🛡️ Stage 5 — securityScans <span class="sh-note">needs: buildImage</span><span class="chevron">▶</span></div>
+    <div class="stage-body">
+      <div class="job"><div class="job-title">container-vuln-backend</div><div class="job-detail">Trivy → gl-container-scanning → GitLab security dashboard</div><span class="badge b-green">Native</span></div>
+      <div class="job"><div class="job-title">container-vuln-frontend</div><div class="job-detail">Trivy → gl-container-scanning</div><span class="badge b-green">Native</span></div>
+      <div class="job"><div class="job-title">container-bestpractices-backend</div><div class="job-detail">Dockle / CIS Docker Benchmark</div><span class="badge b-green">Native</span></div>
+      <div class="job"><div class="job-title">container-bestpractices-frontend</div><div class="job-detail">Dockle / CIS Docker Benchmark</div><span class="badge b-green">Native</span></div>
+    </div>
+    <div class="detail">
+      <div class="det-col">
+        <div class="det-heading">Benefits</div>
+        <div class="benefit-list">
+          <div class="benefit-item"><span class="ico">🐋</span><span><strong>OS-level CVEs:</strong> Trivy scans the base image layers — catches vulnerable system packages (e.g. OpenSSL, libcurl) not visible to SAST</span></div>
+          <div class="benefit-item"><span class="ico">📋</span><span><strong>CIS Benchmark:</strong> Dockle checks Dockerfile best practices — no root user, no SUID binaries, HEALTHCHECK present</span></div>
+          <div class="benefit-item"><span class="ico">🗂️</span><span><strong>Security Dashboard:</strong> Container findings appear alongside SAST/DAST in the unified GitLab Security Dashboard</span></div>
+        </div>
+      </div>
+      <div class="det-col">
+        <div class="det-heading">GitLab features used</div>
+        <div class="feature-list">
+          <div class="feat-chip">🔍 Container Scanning (Trivy) <span class="fc-tag fc-native">Native GA</span></div>
+          <div class="feat-chip">📋 Dockle CIS Benchmark <span class="fc-tag fc-local">Open source</span></div>
+          <div class="feat-chip">🗂️ GitLab Security Dashboard <span class="fc-tag fc-native">Ultimate</span></div>
+          <div class="feat-chip">📦 gl-container-scanning report format <span class="fc-tag fc-native">Native</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="connector">↓</div>
+
+  <!-- STAGE 6 -->
+  <div class="stage s-green" onclick="toggle(this)">
+    <div class="stage-header">🚀 Stage 6 — MR Review Environment Deploy <span class="sh-note">MR pipelines only</span><span class="chevron">▶</span></div>
+    <div class="stage-body">
+      <div class="job"><div class="job-title">deploy-review</div><div class="job-detail">.ci/deploy-review.sh · Render — backend + frontend per MR · environment: review/branch · deploy.env → PREVIEW_*_URL artifacts</div><span class="badge b-green">Native env + custom script</span></div>
+      <div class="job"><div class="job-title">stop-review</div><div class="job-detail">.ci/stop-review.sh · Manual teardown on MR close</div><span class="badge b-green">Native</span></div>
+    </div>
+    <div class="detail">
+      <div class="det-col">
+        <div class="det-heading">Benefits</div>
+        <div class="benefit-list">
+          <div class="benefit-item"><span class="ico">🌐</span><span><strong>Per-MR live URL:</strong> Each MR gets its own isolated environment — reviewers can click through the actual app before approving</span></div>
+          <div class="benefit-item"><span class="ico">⚡</span><span><strong>DAST target ready:</strong> PREVIEW_BACKEND_URL is passed as an artifact to Stage 8 — ZAP scans the exact build under review</span></div>
+          <div class="benefit-item"><span class="ico">🧹</span><span><strong>Automatic cleanup:</strong> on_stop job tears down Render service when MR is closed — no cost leakage</span></div>
+        </div>
+      </div>
+      <div class="det-col">
+        <div class="det-heading">GitLab features used</div>
+        <div class="feature-list">
+          <div class="feat-chip">🌍 GitLab Dynamic Environments <span class="fc-tag fc-native">Native</span></div>
+          <div class="feat-chip">🔗 Environment URL in MR widget <span class="fc-tag fc-native">Native</span></div>
+          <div class="feat-chip">📦 deploy.env artifacts (dotenv) <span class="fc-tag fc-native">Native</span></div>
+          <div class="feat-chip">🛑 on_stop environment cleanup <span class="fc-tag fc-native">Native</span></div>
+          <div class="feat-chip">🚀 Render free tier deploy API <span class="fc-tag fc-custom">Custom script</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="connector">↓</div>
+
+  <!-- STAGE 7 -->
+  <div class="stage s-green" onclick="toggle(this)">
+    <div class="stage-header">🎭 Stage 7 — runtimeValidations<span class="chevron">▶</span></div>
+    <div class="stage-body">
+      <div class="job"><div class="job-title">e2e-tests</div><div class="job-detail">Playwright against PREVIEW_FRONTEND_URL · globalSetup registers e2e user · JUnit XML · HTML report artifact</div><span class="badge b-green">Native</span></div>
+    </div>
+    <div class="detail">
+      <div class="det-col">
+        <div class="det-heading">Benefits</div>
+        <div class="benefit-list">
+          <div class="benefit-item"><span class="ico">🎭</span><span><strong>Real browser testing:</strong> Playwright drives a real Chromium instance against the live review environment — not mocks</span></div>
+          <div class="benefit-item"><span class="ico">🔐</span><span><strong>Auth flows tested:</strong> globalSetup registers and logs in a test user — verifies JWT auth, dashboard render, and entry reveal work end-to-end</span></div>
+          <div class="benefit-item"><span class="ico">📋</span><span><strong>JUnit results in MR:</strong> Test pass/fail shown inline in the GitLab MR — no need to dig into logs</span></div>
+        </div>
+      </div>
+      <div class="det-col">
+        <div class="det-heading">GitLab features used</div>
+        <div class="feature-list">
+          <div class="feat-chip">📋 JUnit XML test reports in MR <span class="fc-tag fc-native">Native</span></div>
+          <div class="feat-chip">📄 HTML report artifact (browsable) <span class="fc-tag fc-native">Native</span></div>
+          <div class="feat-chip">🎭 Playwright (headless Chromium) <span class="fc-tag fc-local">Open source</span></div>
+          <div class="feat-chip">🔗 PREVIEW_FRONTEND_URL from Stage 6 <span class="fc-tag fc-native">dotenv artifact</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="connector">↓</div>
+
+  <!-- STAGE 8 -->
+  <div class="stage s-green" onclick="toggle(this)">
+    <div class="stage-header">⚡ Stage 8 — runtimeSecurityScans<span class="chevron">▶</span></div>
+    <div class="stage-body">
+      <div class="job"><div class="job-title">dast</div><div class="job-detail">ZAP baseline + active scan · DAST_BROWSER_SCAN=true · authenticated via /login · scopes FE + BE APIs</div><span class="badge b-green">Native GA</span></div>
+      <div class="job"><div class="job-title">api_security</div><div class="job-detail">OpenAPI-driven (openapi.dast.yaml) · .ci/dast-api-auth.py mints JWT · auto-injects Bearer header</div><span class="badge b-brown">Custom auth script</span></div>
+    </div>
+    <div class="detail">
+      <div class="det-col">
+        <div class="det-heading">Benefits</div>
+        <div class="benefit-list">
+          <div class="benefit-item"><span class="ico">🌐</span><span><strong>Runtime confirmation:</strong> DAST confirms at runtime what SAST suspected statically — SQLi in /api/search confirmed by ZAP active scan</span></div>
+          <div class="benefit-item"><span class="ico">🔓</span><span><strong>Authenticated scan:</strong> ZAP logs in as a real user so it can reach authenticated endpoints — finds missing security headers on all API responses</span></div>
+          <div class="benefit-item"><span class="ico">📖</span><span><strong>OpenAPI-driven:</strong> api_security job uses openapi.dast.yaml to know exactly which endpoints exist — systematic coverage, no guessing</span></div>
+          <div class="benefit-item"><span class="ico">🎯</span><span><strong>Brute-force detection:</strong> DAST sends 200 rapid /login requests and flags absence of rate limiting — OWASP A07 finding</span></div>
+        </div>
+      </div>
+      <div class="det-col">
+        <div class="det-heading">GitLab features used</div>
+        <div class="feature-list">
+          <div class="feat-chip">⚡ GitLab DAST (ZAP) <span class="fc-tag fc-native">Native GA</span></div>
+          <div class="feat-chip">🌐 DAST Browser Scan mode <span class="fc-tag fc-native">Native</span></div>
+          <div class="feat-chip">📖 API Security Testing (OpenAPI) <span class="fc-tag fc-native">Ultimate</span></div>
+          <div class="feat-chip">🔑 Custom JWT auth script <span class="fc-tag fc-custom">Your build</span></div>
+          <div class="feat-chip">🛡️ DAST findings in MR Security Widget <span class="fc-tag fc-native">Ultimate</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="connector">↓</div>
+
+  <!-- STAGE 9 -->
+  <div class="stage s-brown" onclick="toggle(this)">
+    <div class="stage-header">📊 Stage 9 — summary <span class="sh-note">Custom build</span><span class="chevron">▶</span></div>
+    <div class="stage-body">
+      <div class="job" style="max-width:100%;flex-basis:100%"><div class="job-title">security-summary</div><div class="job-detail">.ci/security-summary.py · Aggregates: npm audit · SAST · Secret Detection · Dep Scanning · Container Scanning · Dockle · DAST · API Security · Unit + E2E tests → single MR comment via Notes API</div><span class="badge b-brown">Your build</span></div>
+    </div>
+    <div class="detail">
+      <div class="det-col">
+        <div class="det-heading">Benefits</div>
+        <div class="benefit-list">
+          <div class="benefit-item"><span class="ico">📋</span><span><strong>Single pane of glass:</strong> Human reviewer sees one structured comment with all findings — no need to click through 8 separate job logs</span></div>
+          <div class="benefit-item"><span class="ico">🔗</span><span><strong>Threat model cross-reference:</strong> Summary links each finding back to the STRIDE risk identified in Step 0 — shows whether the threat was correctly predicted</span></div>
+          <div class="benefit-item"><span class="ico">🏷️</span><span><strong>Risk verdict:</strong> Overall "safe to merge / needs attention" decision with severity breakdown — gives reviewer immediate context</span></div>
+          <div class="benefit-item"><span class="ico">🤖</span><span><strong>Feeds Stage 9b:</strong> Summary comment is the context Duo Code Review Flow reads — richer AI review because it has the full security picture</span></div>
+        </div>
+      </div>
+      <div class="det-col">
+        <div class="det-heading">GitLab features used</div>
+        <div class="feature-list">
+          <div class="feat-chip">💬 GitLab Notes API (MR comment) <span class="fc-tag fc-native">Native</span></div>
+          <div class="feat-chip">📦 Job artifacts (all scan JSONs) <span class="fc-tag fc-native">Native</span></div>
+          <div class="feat-chip">🐍 Python security-summary.py <span class="fc-tag fc-custom">Your build</span></div>
+          <div class="feat-chip">🔗 Link to Step 0 threat model comment <span class="fc-tag fc-custom">Your build</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="connector">↓</div>
+
+  <!-- STAGE 9b -->
+  <div class="stage s-green" onclick="toggle(this)">
+    <div class="stage-header">🤖 Stage 9b — AI Review &amp; False Positive Triage <span class="sh-note">Duo AI</span><span class="chevron">▶</span></div>
+    <div class="stage-body">
+      <div class="job"><div class="job-title">Duo Code Review Flow</div><div class="job-detail">Reviews code + picks up security summary comment as context · inline MR comments · .gitlab/duo/mr-review-instructions.yaml</div><span class="badge b-green">Native GA</span></div>
+      <div class="job"><div class="job-title">SAST FP Detection Flow</div><div class="job-detail">Critical + High findings · confidence score · likely / possible / not FP · auto-triage in vulnerability report</div><span class="badge b-green">Native 18.7 beta</span></div>
+      <div class="job"><div class="job-title">Secret Detection FP Flow</div><div class="job-detail">Analyses secret findings · confidence + explanation · dismisses likely FPs</div><span class="badge b-green">Native 18.10 beta</span></div>
+      <div class="job"><div class="job-title">Agentic SAST Vuln Resolution</div><div class="job-detail">Auto-generates fix MR for High/Critical non-FP findings · multi-shot reasoning · pipeline validates fix</div><span class="badge b-green">Native GA</span></div>
+    </div>
+    <div class="detail">
+      <div class="det-col">
+        <div class="det-heading">Benefits</div>
+        <div class="benefit-list">
+          <div class="benefit-item"><span class="ico">🧠</span><span><strong>Context-aware review:</strong> Duo reads the Stage 9 summary comment — it knows about the SQLi, IDOR, and weak bcrypt before it even looks at the diff</span></div>
+          <div class="benefit-item"><span class="ico">🎯</span><span><strong>FP reduction:</strong> SAST FP Detection scores each Critical/High finding — developers stop wasting time on false alarms</span></div>
+          <div class="benefit-item"><span class="ico">🔧</span><span><strong>Auto-fix MRs:</strong> Agentic SAST Vuln Resolution opens a separate MR with a working code fix — developer just reviews and merges</span></div>
+          <div class="benefit-item"><span class="ico">📊</span><span><strong>Noise reduction:</strong> Secret Detection FP Flow prevents legitimate-looking test tokens from blocking the pipeline</span></div>
+        </div>
+      </div>
+      <div class="det-col">
+        <div class="det-heading">GitLab features used</div>
+        <div class="feature-list">
+          <div class="feat-chip">🤖 Duo Code Review Flow <span class="fc-tag fc-native">Native GA</span></div>
+          <div class="feat-chip">📝 mr-review-instructions.yaml <span class="fc-tag fc-native">Native config</span></div>
+          <div class="feat-chip">🔬 SAST FP Detection Flow <span class="fc-tag fc-native">18.7 beta</span></div>
+          <div class="feat-chip">🔑 Secret Detection FP Flow <span class="fc-tag fc-native">18.10 beta</span></div>
+          <div class="feat-chip">🔧 Agentic SAST Vuln Resolution <span class="fc-tag fc-native">Ultimate GA</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="connector">↓ Human reviewer sees: Duo code review + FP-triaged findings + auto-fix MRs</div>
+
+  <!-- STAGE 9c -->
+  <div class="stage s-green" onclick="toggle(this)">
+    <div class="stage-header">👤 Stage 9c — Human Approval Gate<span class="chevron">▶</span></div>
+    <div class="stage-body">
+      <div class="job"><div class="job-title">Human in the loop</div><div class="job-detail">Reviews Duo comments · accepts / rejects auto-fix MRs · approves MR · full audit trail in MR thread</div><span class="badge b-green">Native MR approvals</span></div>
+    </div>
+    <div class="detail">
+      <div class="det-col">
+        <div class="det-heading">Benefits</div>
+        <div class="benefit-list">
+          <div class="benefit-item"><span class="ico">✍️</span><span><strong>Informed decision:</strong> Reviewer has the full picture — code diff, Duo inline comments, FP-triaged findings, and auto-fix MRs all in one place</span></div>
+          <div class="benefit-item"><span class="ico">📜</span><span><strong>Audit trail:</strong> Every approval, comment, and security dismissal is permanently recorded in the MR thread — compliance-ready</span></div>
+          <div class="benefit-item"><span class="ico">🔐</span><span><strong>Approval rules:</strong> Security team can be required as mandatory approvers for MRs touching auth, admin, or crypto code</span></div>
+        </div>
+      </div>
+      <div class="det-col">
+        <div class="det-heading">GitLab features used</div>
+        <div class="feature-list">
+          <div class="feat-chip">✅ MR Approval Rules <span class="fc-tag fc-native">Premium+</span></div>
+          <div class="feat-chip">🛡️ Security Approval Policies <span class="fc-tag fc-native">Ultimate</span></div>
+          <div class="feat-chip">📜 MR activity audit log <span class="fc-tag fc-native">Native</span></div>
+          <div class="feat-chip">🔒 Protected branches <span class="fc-tag fc-native">Native</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="connector">↓ (default branch only — on merge)</div>
+
+  <!-- STAGE 10 -->
+  <div class="stage s-green" onclick="toggle(this)">
+    <div class="stage-header">📝 Stage 10 — releaseNotes <span class="sh-note">default branch only</span><span class="chevron">▶</span></div>
+    <div class="stage-body">
+      <div class="job"><div class="job-title">generate-release-notes</div><div class="job-detail">.ci/release-notes.py · Plain-English GitLab Release · tag: release-YYYY-MM-DD-SHA</div><span class="badge b-brown">Custom script</span></div>
+      <div class="job"><div class="job-title">Duo Release Notes</div><div class="job-detail">Duo generates changelog from merged MRs + commits</div><span class="badge b-green">Native (bonus)</span></div>
+    </div>
+    <div class="detail">
+      <div class="det-col">
+        <div class="det-heading">Benefits</div>
+        <div class="benefit-list">
+          <div class="benefit-item"><span class="ico">📋</span><span><strong>Automated changelog:</strong> Conventional commits from pre-commit stage feed a clean, categorised release note — feat / fix / security / chore</span></div>
+          <div class="benefit-item"><span class="ico">🔐</span><span><strong>Security patch visibility:</strong> Vulnerabilities fixed in this release are explicitly called out — important for customer-facing audit trails</span></div>
+          <div class="benefit-item"><span class="ico">🤖</span><span><strong>Duo enhancement:</strong> Duo rewrites the raw changelog into plain English suitable for a non-technical audience</span></div>
+        </div>
+      </div>
+      <div class="det-col">
+        <div class="det-heading">GitLab features used</div>
+        <div class="feature-list">
+          <div class="feat-chip">🏷️ GitLab Releases API <span class="fc-tag fc-native">Native</span></div>
+          <div class="feat-chip">🤖 Duo Release Notes <span class="fc-tag fc-native">Native (bonus)</span></div>
+          <div class="feat-chip">📝 Conventional Commits parser <span class="fc-tag fc-custom">Custom script</span></div>
+          <div class="feat-chip">🔖 Git tags (release-YYYY-MM-DD-SHA) <span class="fc-tag fc-native">Native</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Summary table -->
+<table class="tbl">
+  <thead><tr><th>Stage</th><th>CI name</th><th>What runs</th><th>Where defined</th></tr></thead>
+  <tbody>
+    <tr><td><span class="dot" style="background:#d29922"></span>0</td><td>Pre-pipeline</td><td>Planner Agent · Custom Threat Modeling Agent (STRIDE/OWASP) · issue comment</td><td>threat-modeling-flow.yaml (custom)</td></tr>
+    <tr><td><span class="dot" style="background:#58a6ff"></span>Local</td><td>pre-commit</td><td>gitleaks · detect-private-key · file hygiene · schema · tsc --noEmit · conventional commits</td><td>.pre-commit-config.yaml</td></tr>
+    <tr><td><span class="dot" style="background:#3fb950"></span>1</td><td>installDeps</td><td>npm ci + npm audit — backend + frontend</td><td>.gitlab-ci.yml</td></tr>
+    <tr><td><span class="dot" style="background:#3fb950"></span>2</td><td>test</td><td>Advanced SAST · Secret Detection · Dependency Scanning (SBOM v2)</td><td>Injected (enforced) via Pipeline Execution Policy</td></tr>
+    <tr><td><span class="dot" style="background:#3fb950"></span>3</td><td>staticValidations</td><td>tsc --noEmit lint · Jest unit tests · Vitest unit tests</td><td>.gitlab-ci.yml</td></tr>
+    <tr><td><span class="dot" style="background:#3fb950"></span>4</td><td>buildImage</td><td>Docker build + push to CI registry — backend + frontend (manual)</td><td>.gitlab-ci.yml</td></tr>
+    <tr><td><span class="dot" style="background:#3fb950"></span>5</td><td>securityScans</td><td>Trivy container scanning · Dockle CIS Benchmark</td><td>.gitlab-ci.yml</td></tr>
+    <tr><td><span class="dot" style="background:#3fb950"></span>6</td><td>MR Review Environment Deploy</td><td>Render deploy per MR · dynamic environment · PREVIEW_*_URL artifacts</td><td>.gitlab-ci.yml</td></tr>
+    <tr><td><span class="dot" style="background:#3fb950"></span>7</td><td>runtimeValidations</td><td>Playwright E2E against PREVIEW_FRONTEND_URL</td><td>.gitlab-ci.yml</td></tr>
+    <tr><td><span class="dot" style="background:#3fb950"></span>8</td><td>runtimeSecurityScans</td><td>ZAP DAST (browser scan, authenticated) · OpenAPI API Security Testing</td><td>.gitlab-ci.yml + templates</td></tr>
+    <tr><td><span class="dot" style="background:#d29922"></span>9</td><td>summary</td><td>security-summary.py — aggregates all findings → single MR comment</td><td>.gitlab-ci.yml (custom)</td></tr>
+    <tr><td><span class="dot" style="background:#3fb950"></span>9b</td><td>AI Review &amp; FP Triage</td><td>Duo Code Review Flow · SAST FP Detection · Secret FP Detection · Agentic SAST Vuln Resolution</td><td>Duo native</td></tr>
+    <tr><td><span class="dot" style="background:#3fb950"></span>9c</td><td>Human approval gate</td><td>Reviewer acts on Duo comments + triaged findings + auto-fix MRs · approves MR</td><td>Native MR approvals</td></tr>
+    <tr><td><span class="dot" style="background:#3fb950"></span>10</td><td>releaseNotes</td><td>release-notes.py → GitLab Release · Duo release notes (bonus)</td><td>.gitlab-ci.yml (custom)</td></tr>
+  </tbody>
+</table>
+
+<script>
+function toggle(el){
+  const wasOpen = el.classList.contains('open');
+  document.querySelectorAll('.stage.open').forEach(s => s.classList.remove('open'));
+  if(!wasOpen) el.classList.add('open');
+}
+</script>
+</body>
+</html>
