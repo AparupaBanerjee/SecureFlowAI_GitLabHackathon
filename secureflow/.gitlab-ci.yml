@@ -1,0 +1,505 @@
+## .gitlab-ci.yml — SecureFlow Vault
+## GitLab DevSecOps pipeline
+##
+## Security scanning split:
+##   SAST, Secret Detection, Dependency Scanning — injected via pipeline execution policy
+##                                                  (.gitlab/security-policies/policy.yml)
+##   DAST, API Security Testing                  — defined directly in this file
+##
+## Prerequisites (set in CI/CD > Variables):
+##   RENDER_API_KEY              — Render API key
+##   RENDER_OWNER_ID             — Render workspace ID (format: tea-...)
+##   RENDER_PREVIEW_DATABASE_URL — Shared Postgres connection string for preview backends
+##   DAST_AUTH_USERNAME          — Default: alice@example.com (for authenticated DAST)
+##   DAST_AUTH_PASSWORD          — Default: Alice1234! (for authenticated DAST)
+
+stages:
+  - installDeps           # node:build-deps (npm ci for scanning)
+  - test                  # SAST / Secret Detection / Dep Scanning (injected via policy)
+  - staticValidations     # lint + unit tests
+  - buildImage            # build-image (Docker, manual)
+  - securityScans         # container vulnerability + best-practice scans
+  - mrReviewDeploy        # deploy-review (Render services for this MR)
+  - runtimeValidations    # e2e tests against deployed review environment
+  - runtimeSecurityScans  # DAST + API Security Testing against deployed review environment
+  - summary               # security-summary MR comment
+  - releaseNotes          # human-readable GitLab Release (default branch only)
+
+# -- GitLab Security template includes --
+# NOTE: SAST, Secret Detection, and Dependency Scanning are injected via the
+# pipeline execution policy (.gitlab/security-policies/policy.yml) and must
+# NOT be included here. Only runtime-scan templates remain.
+include:
+  # DAST (ZAP baseline + active scan)
+  - template: DAST.gitlab-ci.yml
+  # API Security Testing (OpenAPI-driven)
+  - template: Security/API-Security.gitlab-ci.yml
+
+# -- Global variables --
+# Scan-specific variables for SAST/Secret-Detection/Dep-Scanning are defined
+# in .ci/pipeline-execution-policy.yml (injected via policy).
+variables:
+  DAST_FULL_SCAN_ENABLED: "true"
+  DAST_REQUEST_HEADERS: "X-GitLab-DAST: true"
+  DAST_AUTH_USERNAME: "alice@example.com"
+  DAST_AUTH_PASSWORD: "Alice1234!"
+  RENDER_BASE_URL: "https://api.render.com/v1"
+
+# -- Build Node.js deps (for Dependency Scanning + downstream jobs) --
+node:build-deps:
+  stage: installDeps
+  image: node:20-alpine
+  script:
+    - cd backend && npm ci
+    - npm audit --json > ../audit-backend.json || true
+    - cd ../frontend && npm ci
+    - npm audit --json > ../audit-frontend.json || true
+  artifacts:
+    when: on_success
+    access: developer
+    paths:
+      - backend/node_modules/
+      - frontend/node_modules/
+      - backend/package-lock.json
+      - frontend/package-lock.json
+      - audit-backend.json
+      - audit-frontend.json
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      when: always
+    - when: always
+
+# -- Lint (type-check only) --
+lint:
+  stage: staticValidations
+  image: node:20-alpine
+  cache:
+    key: ${CI_COMMIT_REF_SLUG}-backend
+    paths: [backend/node_modules/]
+  script:
+    - cd backend && npm ci && npx tsc --noEmit
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+
+lint-frontend:
+  stage: staticValidations
+  image: node:20-alpine
+  cache:
+    key: ${CI_COMMIT_REF_SLUG}-frontend
+    paths: [frontend/node_modules/]
+  script:
+    - cd frontend && npm ci && npx tsc --noEmit
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+
+# -- Unit tests + coverage --
+# Coverage % is extracted from Jest/Vitest's "All files" summary line and
+# displayed on the pipeline badge. The Cobertura XML enables per-file
+# coverage diff annotations directly inside MR diffs.
+
+unit-test-backend:
+  stage: staticValidations
+  image: node:20-alpine
+  cache:
+    key: ${CI_COMMIT_REF_SLUG}-backend
+    paths: [backend/node_modules/]
+  script:
+    - cd backend && npm ci && npm test
+  coverage: '/All files[^|]*\|[^|]*\s+([\d\.]+)/'
+  artifacts:
+    when: always
+    reports:
+      junit: backend/junit.xml
+      coverage_report:
+        coverage_format: cobertura
+        path: backend/coverage/cobertura-coverage.xml
+    paths:
+      - backend/coverage/
+    expire_in: 1 week
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+
+unit-test-frontend:
+  stage: staticValidations
+  image: node:20-alpine
+  cache:
+    key: ${CI_COMMIT_REF_SLUG}-frontend
+    paths: [frontend/node_modules/]
+  script:
+    - cd frontend && npm ci && npm test
+  coverage: '/All files[^|]*\|[^|]*\s+([\d\.]+)/'
+  artifacts:
+    when: always
+    reports:
+      coverage_report:
+        coverage_format: cobertura
+        path: frontend/coverage/cobertura-coverage.xml
+    paths:
+      - frontend/coverage/
+    expire_in: 1 week
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+
+# -- Build Docker images (backend + frontend) - optional, for container scanning --
+build-image-backend:
+  stage: buildImage
+  image: docker:24
+  services: [docker:24-dind]
+  variables:
+    IMAGE_TAG: $CI_REGISTRY_IMAGE/backend:$CI_COMMIT_SHORT_SHA
+  before_script:
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+  script:
+    - docker build -t $IMAGE_TAG ./backend
+    - docker push $IMAGE_TAG
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      when: manual
+      allow_failure: true
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+      when: manual
+      allow_failure: true
+
+build-image-frontend:
+  stage: buildImage
+  image: docker:24
+  services: [docker:24-dind]
+  variables:
+    IMAGE_TAG: $CI_REGISTRY_IMAGE/frontend:$CI_COMMIT_SHORT_SHA
+  before_script:
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+  script:
+    - docker build -t $IMAGE_TAG ./frontend
+    - docker push $IMAGE_TAG
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      when: manual
+      allow_failure: true
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+      when: manual
+      allow_failure: true
+
+# -- Container Vulnerability Scanning (Trivy → GitLab security dashboard) --
+container-vuln-backend:
+  stage: securityScans
+  image:
+    name: aquasec/trivy:0.69.3
+    entrypoint: [""]
+  variables:
+    TRIVY_USERNAME: $CI_REGISTRY_USER
+    TRIVY_PASSWORD: $CI_REGISTRY_PASSWORD
+    IMAGE: $CI_REGISTRY_IMAGE/backend:$CI_COMMIT_SHORT_SHA
+  script:
+    - trivy image --format template --template "@/contrib/gitlab.tpl"  --output gl-container-scanning-report-backend.json $IMAGE
+  artifacts:
+    when: always
+    reports:
+      container_scanning: gl-container-scanning-report-backend.json
+    expire_in: 1 week
+  needs:
+    - job: build-image-backend
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+
+container-vuln-frontend:
+  stage: securityScans
+  image:
+    name: aquasec/trivy:0.69.3
+    entrypoint: [""]
+  variables:
+    TRIVY_USERNAME: $CI_REGISTRY_USER
+    TRIVY_PASSWORD: $CI_REGISTRY_PASSWORD
+    IMAGE: $CI_REGISTRY_IMAGE/frontend:$CI_COMMIT_SHORT_SHA
+  script:
+    - trivy image --format template --template "@/contrib/gitlab.tpl"  --output gl-container-scanning-report-frontend.json $IMAGE
+  artifacts:
+    when: always
+    reports:
+      container_scanning: gl-container-scanning-report-frontend.json
+    expire_in: 1 week
+  needs:
+    - job: build-image-frontend
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+
+# -- Container Best Practices (Dockle → CIS Docker Benchmark) --
+container-bestpractices-backend:
+  stage: securityScans
+  image:
+    name: goodwithtech/dockle:latest
+    entrypoint: [""]
+  variables:
+    DOCKLE_USERNAME: $CI_REGISTRY_USER
+    DOCKLE_PASSWORD: $CI_REGISTRY_PASSWORD
+    IMAGE: $CI_REGISTRY_IMAGE/backend:$CI_COMMIT_SHORT_SHA
+  script:
+    - dockle --exit-code 0 --format json --output dockle-backend.json $IMAGE
+  artifacts:
+    when: always
+    paths:
+      - dockle-backend.json
+    expire_in: 1 week
+  needs:
+    - job: build-image-backend
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+
+container-bestpractices-frontend:
+  stage: securityScans
+  image:
+    name: goodwithtech/dockle:latest
+    entrypoint: [""]
+  variables:
+    DOCKLE_USERNAME: $CI_REGISTRY_USER
+    DOCKLE_PASSWORD: $CI_REGISTRY_PASSWORD
+    IMAGE: $CI_REGISTRY_IMAGE/frontend:$CI_COMMIT_SHORT_SHA
+  script:
+    - dockle --exit-code 0 --format json --output dockle-frontend.json $IMAGE
+  artifacts:
+    when: always
+    paths:
+      - dockle-frontend.json
+    expire_in: 1 week
+  needs:
+    - job: build-image-frontend
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+
+# -- Deploy review environment (MR pipelines only) --
+# Creates temporary backend + frontend services per MR via Render API.
+deploy-review:
+  stage: mrReviewDeploy
+  image: alpine:3.20
+  environment:
+    name: review/$CI_COMMIT_REF_SLUG
+    url: "https://securevault-frontend-mr-${CI_MERGE_REQUEST_IID}.onrender.com"
+    on_stop: stop-review
+  before_script:
+    - apk add --no-cache curl jq bash
+  script:
+    - bash .ci/deploy-review.sh
+  artifacts:
+    reports:
+      dotenv: deploy.env
+    paths:
+      - deploy.env
+    expire_in: 1 day
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+
+stop-review:
+  stage: mrReviewDeploy
+  image: alpine:3.20
+  environment:
+    name: review/$CI_COMMIT_REF_SLUG
+    action: stop
+  before_script:
+    - apk add --no-cache curl jq bash
+  script:
+    - bash .ci/stop-review.sh
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      when: manual
+  allow_failure: true
+
+# -- E2E tests - Playwright against deployed review / prod environment --
+# Reuses the review environment spun up by deploy-review (PREVIEW_FRONTEND_URL).
+# On main branch it targets the permanent production deployment.
+#
+# Test user (e2e@secureflow.local) is registered on first run via globalSetup.
+# Credentials can be overridden via CI/CD variables:
+#   E2E_USER_EMAIL    (default: e2e@secureflow.local)
+#   E2E_USER_PASSWORD (default: E2eTest1!)
+e2e-tests:
+  stage: runtimeValidations
+  image: node:20
+  needs:
+    - job: deploy-review
+      artifacts: true
+      optional: true
+  variables:
+    BASE_URL: "$PREVIEW_FRONTEND_URL"
+  before_script:
+    # Poll until the app is reachable (Render cold-starts can take a while)
+    - |
+      echo "Waiting for app at $BASE_URL ..."
+      for i in $(seq 1 60); do
+        if curl -sf "$BASE_URL" >/dev/null 2>&1; then
+          echo "App is ready after $((i * 10))s"; break
+        fi
+        echo "  attempt $i/60 — sleeping 10s"; sleep 10
+      done
+    - npm ci --silent --prefix $CI_PROJECT_DIR/e2e
+    - npx --prefix $CI_PROJECT_DIR/e2e playwright install chromium --with-deps
+  script:
+    - npx --prefix $CI_PROJECT_DIR/e2e playwright test --config $CI_PROJECT_DIR/e2e/playwright.config.ts
+  artifacts:
+    when: always
+    paths:
+      - e2e/playwright-report/
+      - e2e/test-results/
+      - e2e/results.xml
+    reports:
+      junit: e2e/results.xml
+    expire_in: 1 week
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      when: on_success
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+      variables:
+        BASE_URL: "https://securevault-frontend.onrender.com"
+  allow_failure: true
+
+# -- DAST - ZAP baseline + active scan via Frontend app --──────────
+# Scans the frontend application (React/Vite) which exercises the backend API.
+# This covers both FE and BE in an integrated manner.
+#
+# Expected DAST findings against the live preview environment:
+#   • Missing security headers (no helmet on backend) — X-Frame-Options, CSP, etc.
+#   • Missing rate limiting on POST /api/auth/login (backend)
+#   • IDOR on GET /api/entries/:id/reveal (backend, found via FE UI)
+#   • SQL injection on GET /api/search?q= (backend, triggered via FE)
+#   • XSS/CSP violations (if FE is vulnerable)
+#   • Missing HSTS headers (if enforced)
+dast:
+  stage: runtimeSecurityScans
+  needs:
+    - job: deploy-review
+      artifacts: true
+      optional: true
+    - job: e2e-tests
+      artifacts: false
+      optional: true
+  before_script:
+    - echo "Waiting for Render services to finish deploying (2 minutes)..."
+    - sleep 60
+    - echo "Services should be ready now. Starting DAST scan via Frontend..."
+  variables:
+    # Target the frontend application (not direct API)
+    DAST_WEBSITE: "$PREVIEW_FRONTEND_URL"
+    DAST_SCOPE_ALLOW_HOSTS: "$PREVIEW_FRONTEND_URL,$PREVIEW_BACKEND_URL"
+    DAST_AUTH_ENABLED: "true"
+    DAST_AUTH_URL: "$PREVIEW_FRONTEND_URL/login"
+    DAST_AUTH_USERNAME_FIELD: "id:email"
+    DAST_AUTH_PASSWORD_FIELD: "id:password"
+    DAST_AUTH_SUBMIT_FIELD: "id:submit"
+    DAST_AUTH_VERIFICATION_URL: "$PREVIEW_FRONTEND_URL/"
+    DAST_AUTH_VERIFICATION_SELECTOR: "css:nav"
+    DAST_BROWSER_SCAN: "true"
+    DAST_CRAWL_GRAPH: "true"
+    DAST_AUTH_REPORT: "true"
+    SECURE_LOG_LEVEL: "debug"
+  artifacts:
+    when: always
+    paths:
+      - gl-dast-debug-auth-report.html
+    expire_in: 1 week
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      when: on_success
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+      variables:
+        DAST_WEBSITE: "https://securevault-frontend.onrender.com"
+        DAST_AUTH_URL: "https://securevault-frontend.onrender.com/login"
+        DAST_AUTH_VERIFICATION_URL: "https://securevault-frontend.onrender.com/"
+  allow_failure: true
+
+# -- API Security Testing - OpenAPI-driven backend scan --──────────
+# Uses the Security/API-Security.gitlab-ci.yml template (Alpine + Python 3 + Bash).
+# Auth is handled by APISEC_OVERRIDES_CMD — a Python script that mints a JWT
+# token via POST /api/auth/login and writes the overrides JSON file.
+# The scanner injects the Bearer header into every request automatically.
+api_security:
+  stage: runtimeSecurityScans
+  needs:
+    - job: deploy-review
+      artifacts: true
+      optional: true
+    - job: e2e-tests
+      artifacts: false
+      optional: true
+    - job: dast
+      artifacts: false
+      optional: true
+  variables:
+    APISEC_TARGET_URL: "$PREVIEW_BACKEND_URL"
+    APISEC_OPENAPI: "backend/openapi.dast.yaml"
+    APISEC_PROFILE: "Quick"
+    APISEC_OVERRIDES_FILE: "dast-api-overrides.json"
+    APISEC_OVERRIDES_CMD: ".ci/dast-api-auth.py"
+    APISEC_OVERRIDES_INTERVAL: "0"
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      when: on_success
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+      variables:
+        APISEC_TARGET_URL: "https://securevault-backend-xsqx.onrender.com/"
+  allow_failure: true
+## -- Security summary MR note --────────────────
+security-summary:
+  stage: summary
+  image: python:3.12-slim
+  # Use stage-based ordering (no `needs`) so this job waits for ALL previous
+  # stages to finish — including policy-injected and manual-trigger jobs.
+  # `dependencies` controls which artifacts are downloaded.
+  dependencies:
+    - node:build-deps
+    - unit-test-backend
+    - unit-test-frontend
+    - e2e-tests
+    - container-vuln-backend
+    - container-vuln-frontend
+    - container-bestpractices-backend
+    - container-bestpractices-frontend
+    - dast
+    - api_security
+  script:
+    - python3 .ci/security-summary.py
+  artifacts:
+    when: always
+    paths:
+      - "**/*.json"
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      when: always
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+      when: always
+  allow_failure: true
+
+## -- Human-readable GitLab Release Notes (default branch only) --────────────
+# Runs only when code lands on the default branch.
+# Creates a GitLab Release tagged release-YYYY-MM-DD-<short_sha> with plain-
+# English notes grouped by change type (New Features, Fixes, Security, etc.)
+# so that non-technical stakeholders can understand what shipped.
+#
+# Auth: set GITLAB_TOKEN (project/personal access token with `api` scope).
+# Falls back to CI_JOB_TOKEN but that token cannot create releases in all tiers.
+generate-release-notes:
+  stage: releaseNotes
+  image: python:3.12-slim
+  needs:
+    - job: security-summary
+      artifacts: false
+      optional: true
+  before_script:
+    - apt-get update -qq && apt-get install -y -qq git
+    - git fetch --tags --quiet
+  script:
+    - python3 .ci/release-notes.py
+  artifacts:
+    when: always
+    paths:
+      - RELEASE_NOTES.md
+    expire_in: 90 days
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+      when: on_success
+  allow_failure: true

@@ -1,0 +1,32 @@
+# Pipeline Execution Policy — Security Scanning content
+#
+# This file is injected into every project pipeline by the security policy
+# (strategy: inject_policy_in_pipeline_stages). It must NOT be included
+# directly from .gitlab-ci.yml.
+#
+# Policy definition lives at: .gitlab/security-policies/policy.yml
+
+stages:
+  - test
+
+include:
+  # Advanced SAST (uses gitlab-advanced-sast when licensed, falls back to semgrep)
+  - template: Jobs/SAST.gitlab-ci.yml
+
+  # Secret Detection
+  - template: Jobs/Secret-Detection.gitlab-ci.yml
+
+  # Dependency Scanning using SBOM (v2 analyzer)
+  - template: Jobs/Dependency-Scanning.v2.gitlab-ci.yml
+
+variables:
+  SECURE_ANALYZERS_PREFIX: "registry.gitlab.com/security-products"
+
+  # Force Advanced SAST analyzer when the feature is available
+  GITLAB_ADVANCED_SAST_ENABLED: "true"
+  AST_ENABLE_MR_PIPELINES: "true"
+
+  # Noise reduction — skip generated/vendor paths
+  SAST_EXCLUDED_PATHS: "node_modules,dist,frontend/node_modules"
+  DS_EXCLUDED_PATHS: "node_modules,dist,frontend/node_modules"
+  SECRET_DETECTION_EXCLUDED_PATHS: "node_modules"

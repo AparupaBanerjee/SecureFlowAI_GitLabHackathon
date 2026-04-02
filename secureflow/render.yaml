@@ -1,0 +1,61 @@
+## render.yaml — SecureFlow Vault
+## Deploys backend API + static frontend + managed Postgres on Render free tier.
+## Docs: https://render.com/docs/blueprint-spec
+
+databases:
+  - name: securevault-db
+    databaseName: securevault
+    user: securevault
+    plan: free
+
+services:
+  # ── Backend API (Node/Express) ─────────────────────────────────────────────
+  - type: web
+    name: securevault-backend
+    runtime: node
+    plan: free
+    rootDir: backend
+    buildCommand: npm install --include=dev && npm run build
+    startCommand: npm start
+    healthCheckPath: /health
+    numInstances: 1
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: securevault-db
+          property: connectionString
+      - key: CORS_ORIGINS
+        # Use full URL format matching deploy-review.sh configuration
+        value: https://securevault-frontend.onrender.com,https://*.onrender.com
+      # JWT_SECRET is intentionally hardcoded in source for SAST demo.
+      # In real deployments this must be a secret env var:
+      # - key: JWT_SECRET
+      #   generateValue: true
+
+  # ── Frontend (React/Vite → static site) ───────────────────────────────────
+  - type: web
+    name: securevault-frontend
+    runtime: static
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    headers:
+      # VULNERABILITY note: helmet() is missing from the API, so security
+      # headers are absent there. The static host does serve them for HTML.
+      - path: /*
+        name: X-Frame-Options
+        value: SAMEORIGIN
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: VITE_API_URL
+        fromService:
+          name: securevault-backend
+          type: web
+          property: host
+      # VITE_API_URL is injected as a host (for example: securevault-backend.onrender.com).
+      # Frontend code normalizes this to https://<host>/api (see frontend/src/api/client.ts).

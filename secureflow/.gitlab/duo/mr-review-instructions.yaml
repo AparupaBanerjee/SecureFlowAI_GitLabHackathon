@@ -1,0 +1,519 @@
+## .gitlab/duo/mr-review-instructions.yaml
+## Custom GitLab Duo Code Review instructions for SecureFlow Vault.
+## Format: https://docs.gitlab.com/user/gitlab_duo/customize_duo/review_instructions/
+##
+## Covers: Code Review · SAST · DAST · API Security · Unit Test Coverage
+##         E2E Testing · OWASP Top 10 · OWASP LLM Top 10 · NIST SP 800-63B
+
+instructions:
+
+  # ─────────────────────────────────────────────────────────────
+  # 1. BACKEND — SAST & OWASP TOP 10
+  #    Targets all backend TypeScript source files.
+  #    Aligns with: OWASP A01–A10 (2021), NIST SP 800-53 SI-10/SI-16
+  # ─────────────────────────────────────────────────────────────
+  - name: backend-sast-owasp
+    fileFilters:
+      - backend/src/**/*.ts
+      - "!backend/src/**/*.test.ts"
+      - "!backend/src/seed.ts"
+    instructions: |
+      You are performing a SAST-focused review of a Node.js/Express/TypeScript
+      password-manager backend. Apply OWASP Top 10 (2021) and NIST SP 800-53 controls.
+
+      ## A01 — Broken Access Control
+      - Every endpoint that accepts a resource ID (:id, :entryId) MUST assert ownership
+        before returning or mutating data:
+          ```ts
+          if (resource.userId !== req.user.id) return res.status(403).json({ error: 'Forbidden' });
+          ```
+      - Flag any `findByPk()` / `findOne()` result used without a subsequent ownership check.
+      - All `/api/admin/*` routes MUST verify `req.user.role === 'admin'` server-side —
+        frontend guards alone are insufficient (NIST AC-3).
+
+      ## A02 — Cryptographic Failures
+      - JWT secrets MUST come from environment variables, never source literals (CWE-798).
+        Flag any `jwt.sign()` / `jwt.verify()` call not referencing `process.env.*`.
+      - `jsonwebtoken.verify()` MUST include the `algorithms` option (e.g. `['HS256']`) to
+        prevent algorithm-confusion attacks.
+      - bcrypt work factor MUST be ≥ 12 (NIST SP 800-132); flag any value below this (CWE-916).
+      - Vault entry passwords stored in the database MUST be encrypted at rest using a
+        server-side key from env; plaintext storage is a critical finding.
+
+      ## A03 — Injection
+      - Any `sequelize.query()` with string interpolation is a critical SQL injection risk (CWE-89):
+          ```ts
+          // BLOCK: sequelize.query(`...WHERE name ILIKE '%${userInput}%'`)
+          // REQUIRE: sequelize.query(`...WHERE name ILIKE :q`, { replacements: { q } })
+          ```
+      - Prefer Sequelize ORM `where` clauses (parameterised by design) over raw SQL.
+      - Flag any use of `eval()`, `new Function()`, or `child_process.exec()` with
+        user-controlled input (CWE-78/94).
+
+      ## A04 — Insecure Design
+      - Audit log entries (AuditLog model) MUST be written for every sensitive action:
+        REVEAL_SECRET, LOGIN_FAILURE, DELETE_ENTRY, ROLE_CHANGE.
+      - Flag missing audit writes in auth and entry mutation routes.
+
+      ## A05 — Security Misconfiguration
+      - `helmet()` MUST be imported and registered on the Express app before any routes.
+        Missing helmet = no X-Frame-Options, CSP, X-Content-Type-Options (OWASP A05).
+      - CORS origin MUST be an explicit allowlist from `process.env.CORS_ORIGINS`, not `'*'`.
+      - NODE_ENV MUST NOT be `development` in production code paths.
+
+      ## A06 — Vulnerable & Outdated Components
+      - Flag any `require()` / `import` of a package version known to have a CVE
+        (cross-reference npm audit output if available in the MR pipeline artifacts).
+
+      ## A07 — Authentication Failures
+      - Login and register routes MUST have rate limiting middleware applied (e.g. express-rate-limit).
+        Flag any auth endpoint without a rate limiter (CWE-307).
+      - JWT expiry (`expiresIn`) MUST be set and ≤ 24 h for standard tokens.
+      - Flag missing refresh-token rotation or single-use token patterns for sensitive ops.
+
+      ## A09 — Security Logging & Monitoring
+      - Errors returned to the client MUST NOT include raw database error messages or stack
+        traces (CWE-209). Wrap DB errors in a generic message before `res.json()`.
+      - Confirm that failed authentication attempts are logged server-side.
+
+      ## A10 — SSRF
+      - Any code that makes outbound HTTP requests using a user-supplied URL (e.g. the
+        `url` field of a VaultEntry) MUST validate the URL against an allowlist of schemes
+        (https only) and MUST NOT allow `localhost` / private-range IPs (CWE-918).
+
+      ## Output format
+      For every finding: **[OWASP A-number | CWE-nnn]** `file:line` — one-sentence fix.
+      Skip findings already annotated with `// VULNERABILITY:` demo comments.
+
+  # ─────────────────────────────────────────────────────────────
+  # 2. API SECURITY — OWASP API TOP 10
+  #    Targets all route handlers.
+  #    Aligns with: OWASP API Security Top 10 (2023)
+  # ─────────────────────────────────────────────────────────────
+  - name: api-security-owasp
+    fileFilters:
+      - backend/src/routes/**/*.ts
+      - backend/openapi*.yaml
+      - backend/openapi*.json
+    instructions: |
+      You are performing an API Security review aligned with OWASP API Security Top 10 (2023).
+      The backend is Express.js + Sequelize (PostgreSQL). Auth uses Bearer JWT tokens.
+
+      ## API1 — Broken Object Level Authorization
+      - Every route receiving an object ID MUST filter by the authenticated user's ID in the
+        DB query itself — not just post-retrieval. Preferred pattern:
+          ```ts
+          Entry.findOne({ where: { id: req.params.id, userId: req.user.id } })
+          ```
+        This prevents over-fetching and timing side-channels vs. fetch-then-check.
+
+      ## API2 — Broken Authentication
+      - Confirm `authenticate` middleware is applied to every non-public route.
+      - Verify no route bypasses auth via optional middleware chaining (`router.use(auth)?`).
+      - Flag missing `Content-Type: application/json` enforcement on POST/PUT endpoints.
+
+      ## API3 — Broken Object Property Level Authorization
+      - POST /api/entries and PUT /api/entries/:id MUST whitelist accepted fields.
+        Spread of `req.body` directly into `Model.create(req.body)` is a mass-assignment
+        vulnerability — flag it (CWE-915).
+      - The `role` field on User MUST never be settable via a user-facing API.
+
+      ## API4 — Unrestricted Resource Consumption
+      - Flag auth routes (login, register) and search that lack rate limiting.
+      - Flag any file upload or large-payload endpoint without a body-size limit
+        (`express.json({ limit: '10kb' })` or similar).
+
+      ## API5 — Broken Function Level Authorization
+      - Any route that performs an admin-only action (list all users, read all entries,
+        change roles) MUST check `req.user.role === 'admin'` server-side.
+
+      ## API6 — Unrestricted Access to Sensitive Business Flows
+      - Bulk operations (e.g. DELETE all entries) MUST require additional confirmation
+        or be rate-limited separately from single-item ops.
+
+      ## API7 — Server-Side Request Forgery (SSRF)
+      - If the API makes outbound calls based on the `url` field, validate scheme and host.
+
+      ## API8 — Security Misconfiguration
+      - Error responses MUST NOT expose Sequelize model internals, stack traces, or DB schema.
+      - CORS, CSP, and security headers must be set at the app level, not per-route.
+
+      ## API9 — Improper Inventory Management
+      - Confirm that the OpenAPI spec (openapi.dast.yaml) is kept in sync with actual
+        route definitions. Undocumented endpoints found in code but absent from the spec
+        are a finding — they will be missed by API Security scanning in CI.
+
+      ## API10 — Unsafe Consumption of APIs
+      - Any third-party API response used in business logic MUST be validated before use
+        (schema check, expected fields, status code assertion).
+
+      ## Output format
+      **[API-number]** `route file:line` — one-sentence fix.
+
+  # ─────────────────────────────────────────────────────────────
+  # 3. AUTHENTICATION — NIST SP 800-63B ALIGNMENT
+  #    Targets auth middleware and auth routes.
+  # ─────────────────────────────────────────────────────────────
+  - name: auth-nist-800-63b
+    fileFilters:
+      - backend/src/middleware/auth.ts
+      - backend/src/routes/auth.ts
+    instructions: |
+      You are reviewing authentication code against NIST SP 800-63B (Digital Identity
+      Guidelines — Authentication) and OWASP ASVS Level 2.
+
+      ## Secrets & Key Management (NIST 800-63B §5.1)
+      - JWT signing secret MUST be sourced from `process.env.JWT_SECRET` and MUST be
+        ≥ 256-bit entropy for HMAC-SHA256. Flag any hardcoded or short secrets (CWE-798).
+      - Flag `jwt.verify()` calls missing the `algorithms` array option — this prevents
+        the `alg: none` and HS/RS confusion attacks.
+      - JWT payload MUST NOT include sensitive data (password hash, full PII).
+
+      ## Password Storage (NIST 800-63B §5.1.1.2)
+      - bcrypt MUST use a cost factor ≥ 12. Factor of 5 is rejected — flag as high severity.
+      - Reject common/breached passwords at registration (NIST recommends checking against
+        known-bad lists). Flag if no such check exists.
+      - Minimum password length of 8 characters must be enforced server-side, not only in
+        the frontend form (NIST §5.1.1.1).
+
+      ## Session Management (NIST 800-63B §7)
+      - Token expiry (`expiresIn`) MUST be set. Flag missing or >24 h access tokens.
+      - Implement token revocation (blocklist) for logout — stateless JWTs alone cannot
+        be invalidated server-side. Flag if logout only clears localStorage.
+      - Refresh tokens, if introduced, MUST be rotated on each use and stored httpOnly.
+
+      ## Brute-Force Protection (NIST 800-63B §5.2.2)
+      - Login route MUST have rate limiting (e.g. 5 attempts / 15 min per IP).
+      - Flag any login endpoint without express-rate-limit or equivalent middleware.
+      - Account lockout or CAPTCHA after threshold exceeded is recommended.
+
+      ## Multi-Factor Authentication (NIST 800-63B AAL2)
+      - If MFA is added, flag any bypass path that allows login with password alone
+        when MFA is enrolled for a user.
+
+      ## Output format
+      **[NIST 800-63B §section | ASVS vX.Y]** `file:line` — one-sentence fix.
+
+  # ─────────────────────────────────────────────────────────────
+  # 4. FRONTEND SECURITY
+  #    Targets React components, context, and API client.
+  #    Aligns with: OWASP A03 (XSS), A02 (token storage), CWE-79
+  # ─────────────────────────────────────────────────────────────
+  - name: frontend-security
+    fileFilters:
+      - frontend/src/**/*.ts
+      - frontend/src/**/*.tsx
+      - "!frontend/src/**/*.test.tsx"
+      - "!frontend/src/**/*.test.ts"
+    instructions: |
+      You are reviewing a React + TypeScript frontend for a password manager.
+      Apply OWASP Top 10 client-side and ASVS Level 2 browser security controls.
+
+      ## Token Storage (OWASP ASVS V3.4)
+      - JWT stored in `localStorage` is accessible to any JS on the page (XSS risk).
+        For a password manager this is high severity — recommend `httpOnly` cookie or
+        in-memory storage with silent-refresh pattern.
+      - Flag any `localStorage.setItem('token', ...)` in new code without a comment
+        acknowledging the trade-off.
+
+      ## Cross-Site Scripting — XSS (OWASP A03, CWE-79)
+      - Flag any use of `dangerouslySetInnerHTML` without explicit sanitisation.
+      - Flag rendering of raw user-supplied `url`, `name`, or `notes` fields inside
+        `<a href>` or `<img src>` without validation — `javascript:` scheme links
+        are a stored XSS vector.
+      - Validate `url` fields as `https://` scheme only before rendering as links.
+
+      ## Open Redirect (CWE-601)
+      - `useNavigate()` called with a user-controlled path MUST validate the path is
+        relative (starts with `/`). Flag any redirect using `window.location.href`
+        with unsanitised input.
+
+      ## React Router Access Control
+      - Protected routes using `<PrivateRoute>` or similar MUST check the auth token
+        on mount and redirect unauthenticated users. A frontend check is UX only —
+        confirm each protected route's data is ALSO gated server-side.
+
+      ## Sensitive Data in State / Logs
+      - Flag any `console.log()` that prints JWT tokens, passwords, or user PII in
+        production code paths.
+      - `AuthContext` MUST clear all sensitive state (token, user object) on logout.
+
+      ## Dependency Hygiene
+      - Flag imports of abandoned packages or packages with known CVEs surfaced by
+        the pipeline's dependency scanning artifacts.
+
+      ## Output format
+      **[OWASP ref | CWE-nnn]** `component:line` — one-sentence fix.
+
+  # ─────────────────────────────────────────────────────────────
+  # 5. UNIT TEST COVERAGE QUALITY
+  #    Targets Jest (backend) and Vitest (frontend) test files.
+  #    Enforces meaningful coverage — not just line %, but scenario completeness.
+  # ─────────────────────────────────────────────────────────────
+  - name: unit-test-coverage
+    fileFilters:
+      - backend/src/__tests__/**/*.ts
+      - frontend/src/__tests__/**/*.ts
+      - frontend/src/__tests__/**/*.tsx
+      - "**/*.test.ts"
+      - "**/*.test.tsx"
+      - "**/*.spec.ts"
+      - "**/*.spec.tsx"
+    instructions: |
+      You are reviewing unit tests for a security-critical password manager.
+      Test quality matters more than raw line coverage %.
+
+      ## Required Test Scenarios per Backend Route
+      Every route under `backend/src/routes/` MUST have tests for:
+      - [ ] Happy path (200/201 with valid input)
+      - [ ] Missing auth token → 401
+      - [ ] Expired / tampered JWT → 401
+      - [ ] Resource belonging to a different user → 403 (IDOR scenario)
+      - [ ] Missing required fields → 400 with validation error
+      - [ ] Duplicate / constraint violation (e.g. duplicate email) → 409
+
+      Flag any route that lacks a cross-user ownership test — this is the most common
+      security gap in test suites for multi-tenant apps.
+
+      ## Required Test Scenarios per Frontend Component
+      Every form component (Login, AddEntry) MUST cover:
+      - [ ] Successful submission (mocked API resolves) — state updates correctly
+      - [ ] API failure (mocked API rejects) — error message rendered, no navigation
+      - [ ] Input validation feedback visible before submission
+      - [ ] Accessibility: inputs reachable via `getByLabelText` (requires `htmlFor`)
+
+      ## Auth Middleware Tests (backend/src/__tests__/middleware/auth.test.ts)
+      Must include:
+      - [ ] No Authorization header → 401
+      - [ ] Non-Bearer scheme → 401
+      - [ ] Valid token → `req.user` populated correctly
+      - [ ] Tampered signature → 401
+      - [ ] Expired token → 401
+      - [ ] Token signed with wrong secret → 401
+
+      ## Test Quality Anti-Patterns — Flag These
+      - Mocking the database when the test is intended to verify query behaviour
+        (prefer Sequelize model mocks at the ORM boundary, not raw SQL mocks).
+      - Tests that only assert `expect(fn).toHaveBeenCalled()` without asserting the
+        response status or body — these test implementation, not behaviour.
+      - `describe` blocks with no assertions (`test('...', () => {})` empty stubs).
+      - Hardcoded real credentials, tokens, or passwords in test fixtures.
+        Use clearly fake values: `'test-jwt-token'`, `'hashed-pw'`.
+
+      ## Coverage Thresholds (from jest.config.js)
+      - New code added in this MR MUST NOT drop backend branch coverage below 70 %.
+      - New code added in this MR MUST NOT drop frontend statement coverage below 70 %.
+      - Flag if the MR adds a new route or component with zero corresponding tests.
+
+      ## Output format
+      **[MISSING TEST]** `test file or route:line` — describe the missing scenario in one line.
+
+  # ─────────────────────────────────────────────────────────────
+  # 6. END-TO-END TEST COVERAGE
+  #    Targets Playwright test files.
+  #    Ensures E2E suite covers critical security user journeys.
+  # ─────────────────────────────────────────────────────────────
+  - name: e2e-security-coverage
+    fileFilters:
+      - e2e/**/*.ts
+      - e2e/**/*.js
+      - e2e/playwright.config.ts
+    instructions: |
+      You are reviewing Playwright E2E tests for a password manager deployed on Render.
+      E2E tests validate what SAST and unit tests cannot — real browser behaviour,
+      redirects, session state, and DAST-adjacent flows.
+
+      ## Required E2E Security Journeys
+      If a new feature is added, confirm the following critical paths are covered:
+
+      ### Authentication flows (e2e/tests/auth.spec.ts)
+      - [ ] Login with valid credentials → dashboard visible, token in localStorage
+      - [ ] Login with wrong password → error message, no dashboard redirect
+      - [ ] Logout → localStorage cleared, redirect to /login
+      - [ ] Direct navigation to `/` while unauthenticated → redirect to /login
+      - [ ] Expired token in localStorage → automatic redirect to /login (not crash)
+
+      ### Vault CRUD flows (e2e/tests/vault.spec.ts)
+      - [ ] Create entry → appears in list
+      - [ ] Edit entry → changes persisted on refresh
+      - [ ] Delete entry → removed from list
+      - [ ] Search by name → only matching entries shown
+
+      ### Access Control flows (flag if absent when admin/IDOR features change)
+      - [ ] User A cannot view User B's entries by manipulating entry IDs in the URL
+      - [ ] Non-admin user navigating to `/admin` → redirected or shown 403
+
+      ## Playwright Configuration Checks
+      - `retries` MUST be set in CI config (currently 1) — confirm it's not 0 in
+        `playwright.config.ts` for the CI environment.
+      - `baseURL` MUST be derived from an environment variable (`PLAYWRIGHT_BASE_URL`),
+        not hardcoded to localhost in CI runs.
+      - Screenshots and traces on failure should be retained as CI artifacts for
+        debugging (flag if `screenshot: 'only-on-failure'` is removed).
+
+      ## Anti-Patterns — Flag These
+      - `page.waitForTimeout(n)` (arbitrary sleeps) — replace with `waitForSelector`
+        or `waitForResponse`.
+      - Hardcoded demo credentials inside test files that differ from CI env vars
+        (`DAST_AUTH_USERNAME` / `DAST_AUTH_PASSWORD`).
+      - Tests that share state (one test leaves entries that another test counts) —
+        each test MUST set up and tear down its own data.
+
+      ## Output format
+      **[E2E MISSING | E2E ANTI-PATTERN]** `spec file:line` — one-sentence fix.
+
+  # ─────────────────────────────────────────────────────────────
+  # 7. DAST & RUNTIME SECURITY CONFIGURATION
+  #    Targets CI pipeline and DAST configuration files.
+  #    Ensures DAST is correctly configured and findings acted on.
+  # ─────────────────────────────────────────────────────────────
+  - name: dast-runtime-security
+    fileFilters:
+      - .gitlab-ci.yml
+      - .ci/**
+      - backend/openapi*.yaml
+      - backend/openapi*.json
+    instructions: |
+      You are reviewing DAST and runtime security configuration for a GitLab CI pipeline
+      using OWASP ZAP (baseline + active scan) and GitLab API Security testing.
+
+      ## DAST Configuration Quality
+      - `DAST_BROWSER_SCAN: "true"` and `DAST_CRAWL_GRAPH: "true"` should be set for
+        maximum surface area coverage of the React SPA.
+      - DAST auth credentials (`DAST_AUTH_USERNAME`, `DAST_AUTH_PASSWORD`) MUST be
+        sourced from CI/CD variables, never hardcoded in `.gitlab-ci.yml`.
+      - `DAST_AUTH_VERIFICATION_URL` or `DAST_AUTH_SUCCESS_IF_TEXT` MUST be set to
+        confirm successful login before the scan starts — flag if absent.
+      - If new routes are added, confirm they are reachable by the DAST crawler
+        (check that authenticated navigation reaches them).
+
+      ## API Security Testing
+      - The OpenAPI spec (`backend/openapi.dast.yaml`) MUST include every active API
+        route. Flag routes present in `backend/src/routes/` but absent from the spec.
+      - The JWT minting script (`.ci/dast-api-auth.py`) MUST use `DAST_AUTH_PASSWORD`
+        from the environment — flag hardcoded passwords.
+      - `DAST_API_PROFILE: Full` ensures all OWASP API Top 10 checks run — do not
+        downgrade to `Quick` without a documented reason.
+
+      ## CI Secret Hygiene
+      - Flag any plaintext secret, password, or API key in `.gitlab-ci.yml` or `.ci/`
+        scripts. All secrets MUST be CI/CD masked variables.
+      - Flag `before_script` or `script` blocks that `echo` or `cat` secret variables.
+      - Review scripts must not log Bearer tokens to stdout.
+
+      ## Security Job Failures
+      - DAST and API Security jobs MUST be set to `allow_failure: false` for new
+        critical-severity findings. Flag any `allow_failure: true` on security jobs
+        without a linked issue number in a comment.
+
+      ## Output format
+      **[DAST-CONFIG | CI-SECRET | API-SPEC]** `file:line` — one-sentence fix.
+
+  # ─────────────────────────────────────────────────────────────
+  # 8. OWASP LLM TOP 10 — AI / GITLAB DUO INTEGRATION
+  #    Targets any AI integration code and the Duo config itself.
+  #    Aligns with: OWASP Top 10 for LLM Applications (2025)
+  # ─────────────────────────────────────────────────────────────
+  - name: llm-owasp-top10
+    fileFilters:
+      - .gitlab/duo/**
+      - "**/*ai*"
+      - "**/*llm*"
+      - "**/*openai*"
+      - "**/*anthropic*"
+      - "**/*gemini*"
+      - "**/*copilot*"
+    instructions: |
+      You are reviewing AI/LLM integration code and GitLab Duo configuration against
+      the OWASP Top 10 for LLM Applications (2025).
+
+      ## LLM01 — Prompt Injection
+      - Any code that constructs an LLM prompt using user-supplied data (vault entry
+        names, notes, URLs) MUST sanitise the input before inclusion.
+      - Flag f-strings, template literals, or string concatenation that embed raw
+        user data into a system or user prompt without escaping.
+      - Indirect injection risk: if a user's vault `notes` field is ever sent to an
+        LLM (e.g. for summarisation), the field must be treated as untrusted.
+
+      ## LLM02 — Sensitive Information Disclosure
+      - LLM API calls MUST NOT include vault passwords, raw JWT tokens, or PII in
+        the prompt context. Flag any serialisation of the full VaultEntry object.
+      - Log redaction: LLM request/response logs MUST mask sensitive fields.
+
+      ## LLM03 — Supply Chain
+      - AI SDK packages (openai, @anthropic-ai/sdk, etc.) MUST be pinned to an exact
+        version and included in dependency scanning.
+
+      ## LLM04 — Data and Model Poisoning
+      - If training data or fine-tuning is sourced from user vault entries, flag this
+        as a critical data poisoning and privacy risk.
+
+      ## LLM06 — Excessive Agency
+      - Any LLM-driven agent that can write to the database, call external APIs, or
+        modify vault entries MUST require explicit user confirmation before acting.
+      - Flag tool/function definitions that allow the LLM to DELETE or UPDATE records.
+
+      ## LLM07 — System Prompt Leakage
+      - System prompts containing internal business logic, seed credentials, or
+        security posture details MUST NOT be accessible via the API response.
+
+      ## LLM08 — Vector & Embedding Weaknesses
+      - If semantic search over vault entries is added via embeddings, confirm that
+        the embedding index is scoped per-user and cannot be queried across users.
+
+      ## LLM09 — Misinformation
+      - AI-generated password strength assessments or security recommendations shown
+        to the user MUST be clearly labelled as AI-generated and not authoritative.
+
+      ## LLM10 — Unbounded Consumption
+      - LLM API calls MUST have a token budget / max_tokens cap to prevent runaway
+        costs or denial-of-service via large input payloads.
+      - Rate limiting MUST be applied per user to LLM-backed endpoints.
+
+      ## GitLab Duo Config (.gitlab/duo/)
+      - Review instructions in this directory MUST NOT include internal vulnerability
+        details, seed credentials, or infrastructure specifics that should remain
+        confidential — Duo instructions are visible to all project members.
+
+      ## Output format
+      **[LLM-number | CWE-nnn]** `file:line` — one-sentence fix.
+
+  # ─────────────────────────────────────────────────────────────
+  # 9. DEPENDENCY & SUPPLY CHAIN SECURITY
+  #    Targets package manifests.
+  #    Aligns with: OWASP A06, NIST SP 800-161 (C-SCRM)
+  # ─────────────────────────────────────────────────────────────
+  - name: dependency-supply-chain
+    fileFilters:
+      - "**/package.json"
+      - "**/package-lock.json"
+      - "!**/node_modules/**"
+    instructions: |
+      You are reviewing dependency manifests for a Node.js/React application against
+      OWASP A06 (Vulnerable & Outdated Components) and NIST SP 800-161 supply-chain risk.
+
+      ## Vulnerability Findings
+      - If the CI pipeline's dependency scanning artifacts show any Critical or High CVEs
+        in the packages being changed or added, block merge until resolved.
+      - Flag any new `^` or `~` version range for security-critical packages (jsonwebtoken,
+        bcrypt, express, sequelize) — prefer exact pinning for these.
+
+      ## Package Hygiene
+      - Flag packages that have been deprecated on npm or have zero maintenance activity
+        in the past 12 months.
+      - Flag any package added to `dependencies` that is only needed at build/test time —
+        it unnecessarily increases the production attack surface.
+      - Transitive dependencies that introduce native addons (`node-gyp`) MUST be justified.
+
+      ## Lock File Integrity
+      - `package-lock.json` MUST be committed and up to date with `package.json`.
+        A missing or stale lock file means non-reproducible builds.
+      - Flag `package-lock.json` changes that add packages not in `package.json` —
+        this can indicate a dependency confusion or lock-file tampering attempt.
+
+      ## Typosquatting Risk
+      - Flag any newly added package whose name closely resembles a popular package
+        (e.g. `expres`, `reakt`, `sequelise`) — these are common supply-chain attacks.
+
+      ## Output format
+      **[CVE-ID | SUPPLY-CHAIN]** `package.json:line` — one-sentence fix.

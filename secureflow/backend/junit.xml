@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="jest tests" tests="24" failures="0" errors="0" time="3.025">
+  <testsuite name="authenticate middleware" errors="0" failures="0" skipped="0" timestamp="2026-03-30T13:03:16" time="1.928" tests="5">
+    <testcase classname="authenticate middleware rejects request with no Authorization header" name="authenticate middleware rejects request with no Authorization header" time="0.003">
+    </testcase>
+    <testcase classname="authenticate middleware rejects non-Bearer Authorization scheme" name="authenticate middleware rejects non-Bearer Authorization scheme" time="0">
+    </testcase>
+    <testcase classname="authenticate middleware accepts valid JWT and attaches decoded user to request" name="authenticate middleware accepts valid JWT and attaches decoded user to request" time="0.003">
+    </testcase>
+    <testcase classname="authenticate middleware rejects a tampered / invalid JWT" name="authenticate middleware rejects a tampered / invalid JWT" time="0.001">
+    </testcase>
+    <testcase classname="authenticate middleware rejects an expired JWT" name="authenticate middleware rejects an expired JWT" time="0.001">
+    </testcase>
+  </testsuite>
+  <testsuite name="POST /api/auth/register" errors="0" failures="0" skipped="0" timestamp="2026-03-30T13:03:16" time="2.386" tests="8">
+    <testcase classname="POST /api/auth/register 201 — creates user and returns id + email" name="POST /api/auth/register 201 — creates user and returns id + email" time="0.023">
+    </testcase>
+    <testcase classname="POST /api/auth/register 409 — rejects duplicate email" name="POST /api/auth/register 409 — rejects duplicate email" time="0.005">
+    </testcase>
+    <testcase classname="POST /api/auth/register 400 — rejects missing password" name="POST /api/auth/register 400 — rejects missing password" time="0.002">
+    </testcase>
+    <testcase classname="POST /api/auth/register 400 — rejects missing email" name="POST /api/auth/register 400 — rejects missing email" time="0.001">
+    </testcase>
+    <testcase classname="POST /api/auth/login 200 — returns JWT and user on valid credentials" name="POST /api/auth/login 200 — returns JWT and user on valid credentials" time="0.003">
+    </testcase>
+    <testcase classname="POST /api/auth/login 401 — rejects unknown user" name="POST /api/auth/login 401 — rejects unknown user" time="0.002">
+    </testcase>
+    <testcase classname="POST /api/auth/login 401 — rejects wrong password" name="POST /api/auth/login 401 — rejects wrong password" time="0.003">
+    </testcase>
+    <testcase classname="POST /api/auth/login 400 — rejects missing fields" name="POST /api/auth/login 400 — rejects missing fields" time="0.003">
+    </testcase>
+  </testsuite>
+  <testsuite name="GET /api/entries" errors="0" failures="0" skipped="0" timestamp="2026-03-30T13:03:16" time="2.457" tests="11">
+    <testcase classname="GET /api/entries 200 — returns entries belonging to the authenticated user" name="GET /api/entries 200 — returns entries belonging to the authenticated user" time="0.015">
+    </testcase>
+    <testcase classname="GET /api/entries 401 — rejects unauthenticated request" name="GET /api/entries 401 — rejects unauthenticated request" time="0.002">
+    </testcase>
+    <testcase classname="POST /api/entries 201 — creates entry and returns id + name" name="POST /api/entries 201 — creates entry and returns id + name" time="0.007">
+    </testcase>
+    <testcase classname="POST /api/entries 400 — rejects missing name" name="POST /api/entries 400 — rejects missing name" time="0.001">
+    </testcase>
+    <testcase classname="POST /api/entries 400 — rejects missing password" name="POST /api/entries 400 — rejects missing password" time="0.002">
+    </testcase>
+    <testcase classname="PUT /api/entries/:id 200 — updates own entry" name="PUT /api/entries/:id 200 — updates own entry" time="0.002">
+    </testcase>
+    <testcase classname="PUT /api/entries/:id 403 — cannot update another user&apos;s entry" name="PUT /api/entries/:id 403 — cannot update another user&apos;s entry" time="0.002">
+    </testcase>
+    <testcase classname="PUT /api/entries/:id 404 — entry not found" name="PUT /api/entries/:id 404 — entry not found" time="0.002">
+    </testcase>
+    <testcase classname="DELETE /api/entries/:id 200 — deletes own entry" name="DELETE /api/entries/:id 200 — deletes own entry" time="0.002">
+    </testcase>
+    <testcase classname="DELETE /api/entries/:id 403 — cannot delete another user&apos;s entry" name="DELETE /api/entries/:id 403 — cannot delete another user&apos;s entry" time="0.001">
+    </testcase>
+    <testcase classname="DELETE /api/entries/:id 404 — entry not found" name="DELETE /api/entries/:id 404 — entry not found" time="0.002">
+    </testcase>
+  </testsuite>
+</testsuites>

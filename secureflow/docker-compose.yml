@@ -1,0 +1,90 @@
+## docker-compose.yml — SecureFlow Vault (local development)
+##
+## Hot-reload for both backend (ts-node-dev) and frontend (Vite HMR).
+## Source files are volume-mounted so edits are reflected without rebuild.
+##
+## Usage:
+##   cp .env.example .env
+##   docker compose up --build        # first run
+##   docker compose up                # subsequent runs
+
+services:
+
+  # ── PostgreSQL 15 ────────────────────────────────────────────────────────────
+  db:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER:     ${POSTGRES_USER:-securevault}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-securevault}
+      POSTGRES_DB:       ${POSTGRES_DB:-securevault}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"          # expose for GUIs like TablePlus / psql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-securevault} -d ${POSTGRES_DB:-securevault}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  # ── Express API (hot-reload via ts-node-dev) ──────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      target: dev            # uses the "dev" stage from backend/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      # Override DATABASE_URL so the backend always connects via the "db" service name
+      DATABASE_URL: postgres://${POSTGRES_USER:-securevault}:${POSTGRES_PASSWORD:-securevault}@db:5432/${POSTGRES_DB:-securevault}
+      PORT:         ${PORT:-3001}
+      NODE_ENV:     development
+    ports:
+      - "${PORT:-3001}:${PORT:-3001}"
+    volumes:
+      # Mount source so ts-node-dev restarts on save — node_modules stay in the image
+      - ./backend/src:/app/src
+      # Sync package.json and tsconfig.json without triggering a full rebuild
+      - ./backend/package.json:/app/package.json:ro
+      - ./backend/tsconfig.json:/app/tsconfig.json:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:${PORT:-3001}/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  # ── Vite dev server (HMR) ─────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      target: dev            # uses the "dev" stage from frontend/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      # Vite proxy target — routes /api/* to the backend service inside Docker
+      VITE_PROXY_TARGET: http://backend:${PORT:-3001}
+      # Must be empty for local dev: the client code treats any non-empty value as a
+      # full URL and tries to build https://... from it. Empty → falls back to /api
+      # (relative path proxied by Vite) rather than producing https:///api.
+      VITE_API_URL: ""
+    ports:
+      - "5173:5173"
+    volumes:
+      # Mount source and config for HMR — node_modules stay in the image
+      - ./frontend/src:/app/src
+      - ./frontend/index.html:/app/index.html:ro
+      - ./frontend/vite.config.ts:/app/vite.config.ts:ro
+    stdin_open: true         # required for Vite's interactive mode
+
+volumes:
+  pgdata:
+    name: securevault_pgdata

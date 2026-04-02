@@ -1,0 +1,53 @@
+---
+pipeline_execution_policy:
+- name: Security-Scans Enforcement
+  description: To enforce sub set of baseline security scans
+  enabled: true
+  pipeline_config_strategy: inject_policy
+  content:
+    include:
+    - project: gitlab-learn-labs/events/session-z7b3t2z8j/group-y6d4z9g/team-securitas/secureflow
+      file: ".ci/pipeline-execution-policy.yml"
+      ref: main
+  skip_ci:
+    allowed: false
+  variables_override:
+    allowed: false
+    exceptions: []
+approval_policy:
+- name: MR approval policy
+  description: ''
+  enabled: true
+  enforcement_type: enforce
+  policy_scope:
+    projects:
+      excluding: []
+  rules:
+  - type: scan_finding
+    scanners: []
+    vulnerabilities_allowed: 0
+    severity_levels:
+    - critical
+    - high
+    vulnerability_states: []
+    branch_type: protected
+    vulnerability_attributes:
+      false_positive: false
+  actions:
+  - type: require_approval
+    approvals_required: 1
+    role_approvers:
+    - maintainer
+    - developer
+  - type: send_bot_message
+    enabled: true
+  approval_settings:
+    block_branch_modification: true
+    block_group_branch_modification: true
+    prevent_pushing_and_force_pushing: true
+    prevent_approval_by_author: true
+    prevent_approval_by_commit_author: true
+    remove_approvals_with_new_commit: true
+    require_password_to_approve: false
+  fallback_behavior:
+    fail: closed

@@ -1,0 +1,92 @@
+# agent-config.yml — GitLab Duo Agent Platform configuration for SecureFlow Vault
+# Reference: https://docs.gitlab.com/ee/user/gitlab_duo/agent_platform/
+
+name: secureflow-vault-agent
+description: AI agent configuration for SecureFlow Vault password manager
+
+# Project context for agent understanding
+project:
+  name: SecureFlow Vault
+  type: web-application
+  purpose: Password manager demo for GitLab DevSecOps Hackathon
+  design_philosophy: KISS — Keep It Simple, Stupid
+
+# Tech stack declaration
+stack:
+  backend:
+    runtime: node-20
+    language: typescript
+    framework: express
+    orm: sequelize
+    database: postgresql
+    test_runner: jest
+  frontend:
+    language: typescript
+    framework: react-18
+    bundler: vite
+    test_runner: vitest
+  e2e:
+    framework: playwright
+  ci:
+    platform: gitlab-ci
+    security_scanners:
+      - sast
+      - secret-detection
+      - dependency-scanning
+      - dast
+      - api-security-testing
+
+# Agent instructions
+instructions:
+  # Files the agent should read before making any changes
+  context_files:
+    - AGENTS.md
+    - .gitlab/duo/chat-rules.md
+    - .gitlab/duo/mr-review-instructions.yaml
+
+  # Safety rules
+  safety:
+    - Never commit secrets, tokens, or credentials
+    - Never weaken authentication or authorization checks
+    - "Never remove intentional vulnerability markers (// VULNERABILITY: comments) — they exist for demo purposes"
+    - "Always run tests before proposing changes (backend: npm test, frontend: npm test)"
+    - Do not modify .gitlab-ci.yml without explicit approval
+
+  # Coding conventions
+  conventions:
+    - Follow KISS principle — simplest correct solution wins
+    - Use async/await, not callbacks or raw promises
+    - Use Sequelize ORM methods, avoid raw SQL
+    - TypeScript strict mode — no `any` types
+    - All API endpoints accessing user resources must enforce ownership checks
+    - Error responses must not leak internal details
+
+# Flows
+flows:
+  feature_request:
+    description: Create a feature request issue using the project template
+    template: .gitlab/issue_templates/feature_request.md
+    labels:
+      - enhancement
+    actions:
+      - Fill all template sections with relevant detail
+      - Add a comment tagging @threatmodeling for threat modeling review
+
+  bug_fix:
+    description: Fix a reported bug
+    steps:
+      - Read AGENTS.md for project conventions
+      - Reproduce the bug by reading related code
+      - Write a failing test
+      - Implement the minimal fix
+      - Run the full test suite
+      - Create MR with clear description
+
+  security_fix:
+    description: Address a security finding from SAST/DAST/Dependency Scanning
+    steps:
+      - Read AGENTS.md and .gitlab/duo/mr-review-instructions.yaml
+      - Identify the CWE and OWASP category
+      - Implement the fix following the review instructions
+      - Verify the fix does not break existing tests
+      - Document the fix with the relevant CWE/OWASP reference

@@ -1,0 +1,32 @@
+# Dependencies
+node_modules/
+*/node_modules/
+
+# Build output
+backend/dist/
+frontend/dist/
+
+# Environment files
+.env
+backend/.env
+frontend/.env
+*.env.local
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+
+# Coverage
+coverage/
+
+# Vite cache
+frontend/.vite/

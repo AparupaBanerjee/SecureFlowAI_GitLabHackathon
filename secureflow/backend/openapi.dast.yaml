@@ -1,0 +1,79 @@
+openapi: 3.0.3
+info:
+  title: SecureFlow API
+  version: 1.0.0
+servers:
+  - url: /
+paths:
+  /api/auth/login:
+    post:
+      summary: Login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                password:
+                  type: string
+      responses:
+        '200':
+          description: Authenticated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token:
+                    type: string
+        '401':
+          description: Invalid credentials
+  /api/entries:
+    get:
+      summary: List entries
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Entries list
+        '401':
+          description: Unauthorized
+  /api/search:
+    get:
+      summary: Search entries (SQL injection vulnerability)
+      description: Search vault entries by name or username. Intentionally vulnerable to SQL injection for security testing.
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: q
+          required: false
+          schema:
+            type: string
+            example: "password"
+          description: Search query parameter (vulnerable to SQL injection)
+      responses:
+        '200':
+          description: Search results
+          content:
+            application/json:
+              schema:
+                type: array
+        '401':
+          description: Unauthorized
+  /health:
+    get:
+      summary: Health check
+      responses:
+        '200':
+          description: Healthy
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT

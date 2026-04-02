@@ -1,0 +1,45 @@
+## docker-compose.prod.yml — SecureFlow Vault (production-like local testing)
+##
+## Overrides docker-compose.yml to simulate the production environment:
+##   • Backend: compiled JS (no ts-node-dev), no source volume mounts
+##   • Frontend: nginx serving the Vite build, reverse-proxied to backend
+##   • No host port exposure for the backend (nginx is the single ingress)
+##
+## Usage:
+##   cp .env.example .env
+##   # Edit .env: set NODE_ENV=production
+##   docker compose -f docker-compose.yml -f docker-compose.prod.yml up --build
+
+services:
+
+  db:
+    # No changes from base compose — keep pgdata volume and healthcheck
+    environment:
+      POSTGRES_USER:     ${POSTGRES_USER:-securevault}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-securevault}
+      POSTGRES_DB:       ${POSTGRES_DB:-securevault}
+
+  backend:
+    build:
+      context: ./backend
+      target: prod           # compiled JS, non-root user, prod deps only
+    environment:
+      NODE_ENV: production
+    # Remove dev source volume mounts — image contains compiled dist/
+    volumes: []
+    # Don't expose the API port directly; nginx handles external traffic
+    ports: []
+
+  frontend:
+    build:
+      context: ./frontend
+      target: prod           # nginx + static Vite build
+      args:
+        VITE_API_URL: /api   # nginx proxies /api → backend internally
+    # Remove dev source volume mounts
+    volumes: []
+    ports:
+      - "8080:80"            # access the app at http://localhost:8080
+    depends_on:
+      backend:
+        condition: service_healthy

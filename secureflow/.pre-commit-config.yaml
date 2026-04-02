@@ -1,0 +1,92 @@
+# .pre-commit-config.yaml — SecureFlow Vault
+#
+# Install:  pip install pre-commit && pre-commit install
+# Run all:  pre-commit run --all-files
+#
+# Secret detection note:
+#   GitLab's CI Secret Detection job uses gitleaks internally.
+#   The "gitleaks" hook below runs the same engine locally, giving you
+#   the same coverage before the code ever reaches the pipeline.
+#   (GitLab does not publish an official pre-commit package.)
+
+default_stages: [pre-commit]
+
+repos:
+
+  # ── 1. GitLab-equivalent Secret Detection (gitleaks = same engine as CI) ─────
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.27.2
+    hooks:
+      - id: gitleaks
+        name: "secret-detection: gitleaks (GitLab CI equivalent)"
+        # Detects API keys, tokens, DB connection strings, private keys, etc.
+        # Uses the same ruleset engine as GitLab's secret_detection job.
+        args: ["--baseline-path=.gitleaks-baseline.json"]
+        # Baseline suppresses already-committed findings so you only see NEW secrets.
+        # Generate once with: gitleaks detect --baseline-path .gitleaks-baseline.json
+
+  # ── 2. Additional secret / credential patterns ────────────────────────────────
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: detect-private-key
+        name: "secret-detection: private key in files"
+
+  # ── 3. File hygiene ───────────────────────────────────────────────────────────
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-merge-conflict
+      - id: check-case-conflict        # catches macOS/Linux filename mismatches
+      - id: check-added-large-files
+        args: ["--maxkb=500"]          # prevent accidental node_modules or binary commits
+      - id: no-commit-to-branch
+        args: [--branch, main]         # force all work through MRs
+
+  # ── 4. YAML / JSON / config validation ───────────────────────────────────────
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-yaml
+        name: "validate: YAML files (docker-compose, CI, etc.)"
+        args: ["--unsafe"]             # allow GitLab CI anchors & custom tags
+      - id: check-json
+        name: "validate: JSON files (package.json, tsconfig, etc.)"
+
+  - repo: https://github.com/python-jsonschema/check-jsonschema
+    rev: 0.33.0
+    hooks:
+      - id: check-gitlab-ci
+        name: "validate: .gitlab-ci.yml schema (local, offline)"
+        # Fast offline check — catches unknown keywords, bad types, missing fields.
+
+  # ── 5. TypeScript type-checking (mirrors CI lint jobs) ───────────────────────
+  # Runs the same `tsc --noEmit` as the `lint` and `lint-frontend` CI jobs,
+  # so type errors are caught locally before pushing.
+  - repo: local
+    hooks:
+      - id: tsc-backend
+        name: "typecheck: backend (tsc --noEmit)"
+        language: system
+        entry: bash -c "cd backend && npx tsc --noEmit"
+        files: ^backend/src/.*\.ts$
+        pass_filenames: false
+
+      - id: tsc-frontend
+        name: "typecheck: frontend (tsc --noEmit)"
+        language: system
+        entry: bash -c "cd frontend && npx tsc --noEmit"
+        files: ^frontend/src/.*\.ts[x]?$
+        pass_filenames: false
+
+  # ── 6. Conventional commit messages ──────────────────────────────────────────
+  # Enforces: feat|fix|chore|docs|test|ci|refactor|perf|style(<scope>): subject
+  # Keeps MR titles and the security-summary job log readable.
+  - repo: https://github.com/compilerla/conventional-pre-commit
+    rev: v4.0.0
+    hooks:
+      - id: conventional-pre-commit
+        stages: [commit-msg]           # runs on the commit message, not file content
+        args: [feat, fix, chore, docs, test, ci, refactor, perf, style, revert]
